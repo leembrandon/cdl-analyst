@@ -480,8 +480,8 @@ function PlayerCompare(props) {
   var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
   var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
 
-  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); };
-  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); };
+  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); if (document.activeElement) document.activeElement.blur(); };
+  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); };
 
   var stats = [
     {label: "K/D", k: "kd"},
@@ -506,21 +506,23 @@ function PlayerCompare(props) {
     });
   }
 
+  var handleItem = function(e, pickFn, p) { e.preventDefault(); e.stopPropagation(); pickFn(p); };
+
   return <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
       <div className="relative">
-        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 200); }} placeholder="Player 1..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
+        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
         {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
-          {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { e.preventDefault(); pick1(p); }}>
+          {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { handleItem(e, pick1, p); }} onTouchEnd={function(e) { handleItem(e, pick1, p); }}>
             <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
           </div>; })}
         </div>}
       </div>
       <div className="flex items-center justify-center py-1 sm:pt-3"><div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560"}}>VS</div></div>
       <div className="relative">
-        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 200); }} placeholder="Player 2..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
+        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
         {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
-          {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { e.preventDefault(); pick2(p); }}>
+          {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { handleItem(e, pick2, p); }} onTouchEnd={function(e) { handleItem(e, pick2, p); }}>
             <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
           </div>; })}
         </div>}

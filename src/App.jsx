@@ -447,7 +447,152 @@ function PlayerSearch(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Search"];
+function CompareRow(props) {
+  var label = props.label, v1 = props.v1, v2 = props.v2, fmt = props.fmt || "0.00";
+  var f = function(v) { return fmt === "pct" ? v.toFixed(1) + "%" : fmt === "0.0" ? v.toFixed(1) : v.toFixed(2); };
+  var w1 = v1 > v2, w2 = v2 > v1, tie = v1 === v2;
+  var c1 = w1 ? "#52b788" : tie ? "#ffd166" : "#888";
+  var c2 = w2 ? "#52b788" : tie ? "#ffd166" : "#888";
+  return <div className="grid grid-cols-3 items-center py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+    <div className="text-right pr-4"><span className="text-sm font-bold" style={{color: c1}}>{f(v1)}</span></div>
+    <div className="text-center text-xs uppercase tracking-wider opacity-40">{label}</div>
+    <div className="text-left pl-4"><span className="text-sm font-bold" style={{color: c2}}>{f(v2)}</span></div>
+  </div>;
+}
+
+function PlayerCompare(props) {
+  var analysis = props.analysis;
+  var [q1, setQ1] = useState("");
+  var [q2, setQ2] = useState("");
+  var [p1, setP1] = useState(null);
+  var [p2, setP2] = useState(null);
+  var [show1, setShow1] = useState(false);
+  var [show2, setShow2] = useState(false);
+
+  var search = function(q) {
+    if (q.length < 2) return [];
+    var lower = q.toLowerCase();
+    return analysis.playerStats.filter(function(p) {
+      return (p.player_tag && p.player_tag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
+    }).slice(0, 6);
+  };
+
+  var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
+  var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
+
+  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); };
+  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); };
+
+  var stats = [
+    {label: "K/D", k: "kd"},
+    {label: "HP K/D", k: "hp_kd"},
+    {label: "SnD K/D", k: "snd_kd"},
+    {label: "OVL K/D", k: "ovl_kd"},
+    {label: "HP K/10m", k: "hp_k_10m", fmt: "0.0"},
+    {label: "HP D/10m", k: "hp_d_10m", fmt: "0.0"},
+    {label: "SnD KPR", k: "snd_kpr"},
+    {label: "SnD DPR", k: "snd_dpr"},
+    {label: "OVL K/10m", k: "ovl_k_10m", fmt: "0.0"},
+    {label: "OVL D/10m", k: "ovl_d_10m", fmt: "0.0"}
+  ];
+
+  var p1Wins = 0, p2Wins = 0;
+  if (p1 && p2) {
+    stats.forEach(function(st) {
+      var v1 = s(p1, st.k), v2 = s(p2, st.k);
+      var higher = st.k.indexOf("_d_") !== -1 || st.k === "snd_dpr";
+      if (higher) { if (v1 < v2) p1Wins++; else if (v2 < v1) p2Wins++; }
+      else { if (v1 > v2) p1Wins++; else if (v2 > v1) p2Wins++; }
+    });
+  }
+
+  return <div className="space-y-4">
+    <div className="grid grid-cols-3 gap-3 items-start">
+      <div className="relative">
+        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} placeholder="Player 1..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none text-sm" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)"}} />
+        {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
+          {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-2 cursor-pointer hover:bg-white/5 text-sm" onClick={function() { pick1(p); }}>
+            <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
+          </div>; })}
+        </div>}
+      </div>
+      <div className="flex items-center justify-center pt-3"><div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560"}}>VS</div></div>
+      <div className="relative">
+        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} placeholder="Player 2..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none text-sm" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)"}} />
+        {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
+          {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-2 cursor-pointer hover:bg-white/5 text-sm" onClick={function() { pick2(p); }}>
+            <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
+          </div>; })}
+        </div>}
+      </div>
+    </div>
+
+    {p1 && p2 && <div>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+          <div className="text-lg font-bold text-white">{p1.player_tag}</div>
+          <div className="text-xs opacity-40">{p1.team_name}</div>
+          <RoleBadge role={p1.role} />
+          <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
+          <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
+        </div>
+        <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+          <div className="text-lg font-bold text-white">{p2.player_tag}</div>
+          <div className="text-xs opacity-40">{p2.team_name}</div>
+          <RoleBadge role={p2.role} />
+          <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
+          <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
+        </div>
+      </div>
+
+      <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)"}}>
+        <div className="grid grid-cols-3 items-center py-2 px-2" style={{background: "rgba(255,255,255,0.04)"}}>
+          <div className="text-right pr-4 text-xs font-bold" style={{color: "#e94560"}}>{p1.player_tag}</div>
+          <div className="text-center text-xs opacity-30">stat</div>
+          <div className="text-left pl-4 text-xs font-bold" style={{color: "#e94560"}}>{p2.player_tag}</div>
+        </div>
+
+        <div style={{padding: "0 8px"}}>
+          <div className="py-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overall</div>
+          </div>
+          <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
+
+          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
+          </div>
+          <CompareRow label="HP K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
+          <CompareRow label="K/10m" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
+          <CompareRow label="D/10m" v1={s(p1, "hp_d_10m")} v2={s(p2, "hp_d_10m")} fmt="0.0" />
+
+          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
+          </div>
+          <CompareRow label="SnD K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
+          <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
+          <CompareRow label="DPR" v1={s(p1, "snd_dpr")} v2={s(p2, "snd_dpr")} />
+
+          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overload</div>
+          </div>
+          <CompareRow label="OVL K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
+          <CompareRow label="K/10m" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
+          <CompareRow label="D/10m" v1={s(p1, "ovl_d_10m")} v2={s(p2, "ovl_d_10m")} fmt="0.0" />
+        </div>
+
+        <div className="grid grid-cols-3 items-center py-3 px-2" style={{borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)"}}>
+          <div className="text-right pr-4"><div className="text-xl font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
+          <div className="text-center text-xs opacity-30">of {stats.length}</div>
+          <div className="text-left pl-4"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
+        </div>
+      </div>
+    </div>}
+
+    {(!p1 || !p2) && <div className="text-center py-8 opacity-30"><p className="text-sm">Select two players to compare their stats</p></div>}
+  </div>;
+}
+
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Search"];
 
 export default function App() {
   var [tab, setTab] = useState("Schedule");
@@ -506,6 +651,8 @@ export default function App() {
           <TeamsGrid analysis={analysis} onTeamClick={setTeamPageId} />
         </div>}
       </div>}
+
+      {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} /></div>}
 
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>

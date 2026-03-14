@@ -594,7 +594,102 @@ function PlayerCompare(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Search"];
+function PlayerLeaderboard(props) {
+  var analysis = props.analysis;
+  var [sortBy, setSortBy] = useState("kd");
+  var [roleFilter, setRoleFilter] = useState("All");
+
+  var sortOptions = [
+    {key: "kd", label: "K/D"},
+    {key: "hp_k_10m", label: "HP K/10"},
+    {key: "hp_kd", label: "HP K/D"},
+    {key: "snd_kpr", label: "SnD KPR"},
+    {key: "snd_kd", label: "SnD K/D"},
+    {key: "ovl_k_10m", label: "OVL K/10"},
+    {key: "ovl_kd", label: "OVL K/D"}
+  ];
+
+  var contextStats = {
+    kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}],
+    hp_k_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_d_10m", label: "HP D/10", fmt: "0.0"}],
+    hp_kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_d_10m", label: "HP D/10", fmt: "0.0"}],
+    snd_kpr: [{k: "snd_kd", label: "SnD K/D", fmt: "0.00"}, {k: "snd_dpr", label: "SnD DPR", fmt: "0.00"}],
+    snd_kd: [{k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}, {k: "snd_dpr", label: "SnD DPR", fmt: "0.00"}],
+    ovl_k_10m: [{k: "ovl_kd", label: "OVL K/D", fmt: "0.00"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}],
+    ovl_kd: [{k: "ovl_k_10m", label: "OVL K/10", fmt: "0.0"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}]
+  };
+
+  var filtered = analysis.playerStats.filter(function(p) {
+    if (roleFilter === "All") return true;
+    return p.role === roleFilter;
+  });
+
+  var sorted = filtered.slice().sort(function(a, b) { return s(b, sortBy) - s(a, sortBy); });
+
+  var fmtVal = function(v, fmt) {
+    if (fmt === "0.0") return v.toFixed(1);
+    return v.toFixed(2);
+  };
+
+  var mainFmt = sortBy.indexOf("k_10m") !== -1 || sortBy.indexOf("d_10m") !== -1 ? "0.0" : "0.00";
+
+  var roles = ["All"];
+  var roleSet = {};
+  analysis.playerStats.forEach(function(p) { if (p.role && !roleSet[p.role]) { roleSet[p.role] = true; roles.push(p.role); } });
+
+  var ctx = contextStats[sortBy] || contextStats.kd;
+
+  var sortLabel = "";
+  sortOptions.forEach(function(opt) { if (opt.key === sortBy) sortLabel = opt.label; });
+
+  return <div>
+    <div className="flex flex-wrap gap-1.5 mb-3">
+      {sortOptions.map(function(opt) {
+        return <button key={opt.key} onClick={function() { setSortBy(opt.key); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: sortBy === opt.key ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: sortBy === opt.key ? "#e94560" : "#666"}}>{opt.label}</button>;
+      })}
+      <div style={{width: "1px", background: "rgba(255,255,255,0.08)", margin: "0 4px", alignSelf: "stretch"}} />
+      {roles.map(function(r) {
+        return <button key={r} onClick={function() { setRoleFilter(r); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: roleFilter === r ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.05)", color: roleFilter === r ? "#53a8b6" : "#666"}}>{r}</button>;
+      })}
+    </div>
+
+    <div style={{fontSize: "11px", color: "#555", marginBottom: "10px"}}>{sorted.length} players · Sorted by {sortLabel}</div>
+
+    {sorted.map(function(p, i) {
+      var maps = Math.round((s(p, "hp_game_count") + s(p, "snd_game_count") + s(p, "ovl_game_count")) / 3);
+      var mainVal = s(p, sortBy);
+      var mainColor = sortBy.indexOf("kd") !== -1 || sortBy === "kd" ? kdColor(mainVal) : mainVal > 0 ? "#52b788" : "#888";
+
+      return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+        <span className="text-xs font-bold flex-shrink-0" style={{width: "24px", textAlign: "center", color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold text-white truncate">{p.player_tag}</span>
+            <RoleBadge role={p.role} />
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span style={{fontSize: "11px", color: "#555"}}>{p.team_short}</span>
+            <span style={{fontSize: "10px", color: "#444"}}>{maps} maps</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {ctx.map(function(c) {
+            return <div key={c.k} className="text-center hidden sm:block">
+              <div style={{fontSize: "9px", color: "#555"}}>{c.label}</div>
+              <div style={{fontSize: "12px", fontWeight: 600, color: "#aaa"}}>{fmtVal(s(p, c.k), c.fmt)}</div>
+            </div>;
+          })}
+          <div className="text-center" style={{minWidth: "48px"}}>
+            <div style={{fontSize: "9px", color: "#555"}}>{sortLabel}</div>
+            <div style={{fontSize: "16px", fontWeight: 700, color: mainColor}}>{fmtVal(mainVal, mainFmt)}</div>
+          </div>
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Search"];
 
 export default function App() {
   var [tab, setTab] = useState("Schedule");
@@ -655,6 +750,8 @@ export default function App() {
       </div>}
 
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} /></div>}
+
+      {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
 
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>

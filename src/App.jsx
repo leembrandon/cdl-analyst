@@ -211,9 +211,9 @@ function H2HRow(props) {
 
 function PlayerRow(props) {
   var p = props.p;
-  var maps = Math.round((s(p, "hp_game_count") + s(p, "snd_game_count") + s(p, "ovl_game_count")) / 3);
+  var matches = s(p, "matches_played");
   return <div className="py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-    <div className="flex items-center gap-1 mb-1.5"><span className="text-sm font-medium text-white">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{maps} maps</span></div>
+    <div className="flex items-center gap-1 mb-1.5"><span className="text-sm font-medium text-white">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{matches} matches</span></div>
     <div className="grid grid-cols-4 gap-2 pl-1">
       <div><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div></div>
       <div><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-semibold">{s(p, "hp_k_10m").toFixed(1)}</div></div>
@@ -656,7 +656,7 @@ function PlayerLeaderboard(props) {
     <div style={{fontSize: "11px", color: "#555", marginBottom: "10px"}}>{sorted.length} players · Sorted by {sortLabel}</div>
 
     {sorted.map(function(p, i) {
-      var maps = Math.round((s(p, "hp_game_count") + s(p, "snd_game_count") + s(p, "ovl_game_count")) / 3);
+      var matches = s(p, "matches_played");
       var mainVal = s(p, sortBy);
       var mainColor = sortBy.indexOf("kd") !== -1 || sortBy === "kd" ? kdColor(mainVal) : mainVal > 0 ? "#52b788" : "#888";
 
@@ -669,7 +669,7 @@ function PlayerLeaderboard(props) {
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span style={{fontSize: "11px", color: "#555"}}>{p.team_short}</span>
-            <span style={{fontSize: "10px", color: "#444"}}>{maps} maps</span>
+            <span style={{fontSize: "10px", color: "#444"}}>{matches} matches</span>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">

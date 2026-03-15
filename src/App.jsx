@@ -523,12 +523,6 @@ function PlayerCompare(props) {
     </div>
 
     {p1 && p2 && <div>
-      <div className="sticky z-10 grid grid-cols-3 items-center py-2 px-3 rounded-lg mb-3" style={{top: "72px", background: "#0d0d1a", borderBottom: "1px solid rgba(255,255,255,0.08)"}}>
-        <div className="text-right pr-3"><div className="text-sm font-bold text-white">{p1.player_tag}</div><div style={{fontSize: "10px", color: "#555"}}>{p1.team_short} · {p1.role}</div></div>
-        <div className="flex justify-center"><div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560"}}>VS</div></div>
-        <div className="text-left pl-3"><div className="text-sm font-bold text-white">{p2.player_tag}</div><div style={{fontSize: "10px", color: "#555"}}>{p2.team_short} · {p2.role}</div></div>
-      </div>
-
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
           <div className="text-lg font-bold text-white">{p1.player_tag}</div>

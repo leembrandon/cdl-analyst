@@ -808,7 +808,6 @@ function PlayerSpotlight(props) {
   var [player, setPlayer] = useState(null);
   var [showResults, setShowResults] = useState(false);
   var [sharing, setSharing] = useState(false);
-  var [linkCopied, setLinkCopied] = useState(false);
   var cardRef = useRef(null);
 
   var results = useMemo(function() {
@@ -822,7 +821,6 @@ function PlayerSpotlight(props) {
   var pickPlayer = function(p) { setPlayer(p); setQuery(p.player_tag); setShowResults(false); if (document.activeElement) document.activeElement.blur(); };
   var handleItem = function(e, p) { e.preventDefault(); e.stopPropagation(); pickPlayer(p); };
 
-  // Compute impact metrics when a player is selected
   var impact = useMemo(function() {
     if (!player || !player.team_id) return null;
     var roster = analysis.rosterStats(player.team_id);
@@ -830,24 +828,65 @@ function PlayerSpotlight(props) {
 
     var totalKills = 0, totalDmg = 0;
     var playerKills = 0, playerDmg = 0;
+    var teamDmgPerMin = 0;
 
     roster.forEach(function(p) {
-      var k = s(p, "kills");
-      var dmg = s(p, "dmg");
-      totalKills += k;
-      totalDmg += dmg;
+      totalKills += s(p, "kills");
+      totalDmg += s(p, "dmg");
+      teamDmgPerMin += s(p, "dmg_per_min");
       if (p.player_id === player.player_id) {
-        playerKills = k;
-        playerDmg = dmg;
+        playerKills = s(p, "kills");
+        playerDmg = s(p, "dmg");
       }
     });
 
-    var teamAvgKd = roster.reduce(function(sum, p) { return sum + s(p, "kd"); }, 0) / roster.length;
+    var rosterSize = roster.length;
+    var evenShare = 100 / rosterSize;
     var killPct = totalKills > 0 ? (playerKills / totalKills * 100) : 0;
     var dmgPct = totalDmg > 0 ? (playerDmg / totalDmg * 100) : 0;
-    var kdDiff = s(player, "kd") - teamAvgKd;
+    var teamAvgDmgPerMin = rosterSize > 0 ? teamDmgPerMin / rosterSize : 0;
+    var playerDmgPerMin = s(player, "dmg_per_min");
+    var dmgPerMinDiff = playerDmgPerMin - teamAvgDmgPerMin;
 
-    return { killPct: killPct, dmgPct: dmgPct, kdDiff: kdDiff, teamAvgKd: teamAvgKd, rosterSize: roster.length };
+    // Impact score: weighted combination normalized to 0-100
+    // Kill share above even (max ~15% above = 40pts), dmg share above even (max ~15% above = 30pts), dmg/min diff (max ~80 above = 30pts)
+    var killAbove = Math.max(0, killPct - evenShare);
+    var dmgAbove = Math.max(0, dmgPct - evenShare);
+    var killScore = Math.min(killAbove / 15, 1) * 40;
+    var dmgShareScore = Math.min(dmgAbove / 15, 1) * 30;
+    var dmgMinScore = Math.min(Math.max(dmgPerMinDiff, 0) / 80, 1) * 30;
+    var raw = killScore + dmgShareScore + dmgMinScore;
+
+    // Also factor in if they're below average (penalize)
+    var killBelow = Math.max(0, evenShare - killPct);
+    var dmgBelow = Math.max(0, evenShare - dmgPct);
+    var penalty = (killBelow / evenShare * 20) + (dmgBelow / evenShare * 15) + (Math.max(0, -dmgPerMinDiff) / 80 * 15);
+    var score = Math.max(0, Math.min(100, raw - penalty + 50)); // baseline of 50
+
+    var grade;
+    if (score >= 90) grade = "S+";
+    else if (score >= 82) grade = "S";
+    else if (score >= 75) grade = "A+";
+    else if (score >= 68) grade = "A";
+    else if (score >= 60) grade = "B+";
+    else if (score >= 52) grade = "B";
+    else if (score >= 44) grade = "C+";
+    else if (score >= 36) grade = "C";
+    else if (score >= 28) grade = "D";
+    else grade = "F";
+
+    var gradeColor;
+    if (score >= 82) gradeColor = "#52b788";
+    else if (score >= 68) gradeColor = "#a3be8c";
+    else if (score >= 52) gradeColor = "#ffd166";
+    else if (score >= 36) gradeColor = "#ff9f43";
+    else gradeColor = "#ff6b6b";
+
+    return {
+      killPct: killPct, dmgPct: dmgPct, evenShare: evenShare, rosterSize: rosterSize,
+      playerDmgPerMin: playerDmgPerMin, teamAvgDmgPerMin: teamAvgDmgPerMin, dmgPerMinDiff: dmgPerMinDiff,
+      score: score, grade: grade, gradeColor: gradeColor
+    };
   }, [player, analysis]);
 
   var teamColor = useMemo(function() {
@@ -865,12 +904,12 @@ function PlayerSpotlight(props) {
       window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
         canvas.toBlob(function(blob) {
           if (!blob) { setSharing(false); return; }
-          var file = new File([blob], "barracks-spotlight.png", {type: "image/png"});
+          var file = new File([blob], "barracks-impact.png", {type: "image/png"});
           if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
-            navigator.share({files: [file], title: (player ? player.player_tag : "") + " — Barracks CDL Spotlight"}).catch(function() {}).finally(function() { setSharing(false); });
+            navigator.share({files: [file], title: (player ? player.player_tag : "") + " — Barracks CDL Impact"}).catch(function() {}).finally(function() { setSharing(false); });
           } else {
             var link = document.createElement("a");
-            link.download = "barracks-" + (player ? player.player_tag : "player") + "-spotlight.png";
+            link.download = "barracks-" + (player ? player.player_tag : "player") + "-impact.png";
             link.href = canvas.toDataURL("image/png");
             link.click();
             setSharing(false);
@@ -882,37 +921,13 @@ function PlayerSpotlight(props) {
     document.head.appendChild(script);
   };
 
-  var spotlightStats = [
-    {section: "OVERALL", rows: [
-      {label: "K/D", k: "kd", fmt: "2"},
-      {label: "DMG/m", k: "dmg_per_min", fmt: "1"}
-    ]},
-    {section: "HARDPOINT", rows: [
-      {label: "K/D", k: "hp_kd", fmt: "2"},
-      {label: "K/10", k: "hp_k_10m", fmt: "1"},
-      {label: "D/10", k: "hp_d_10m", fmt: "1"},
-      {label: "DMG/10", k: "hp_dmg_10m", fmt: "1"},
-      {label: "ENG/10", k: "hp_eng_10m", fmt: "1"}
-    ]},
-    {section: "S&D", rows: [
-      {label: "K/D", k: "snd_kd", fmt: "2"},
-      {label: "KPR", k: "snd_kpr", fmt: "2"},
-      {label: "DPR", k: "snd_dpr", fmt: "2"},
-      {label: "FB%", k: "first_blood_percentage", fmt: "pct"}
-    ]},
-    {section: "OVERLOAD", rows: [
-      {label: "K/D", k: "ovl_kd", fmt: "2"},
-      {label: "K/10", k: "ovl_k_10m", fmt: "1"},
-      {label: "D/10", k: "ovl_d_10m", fmt: "1"},
-      {label: "DMG/10", k: "ovl_dmg_10m", fmt: "1"},
-      {label: "ENG/10", k: "ovl_eng_10m", fmt: "1"}
-    ]}
-  ];
-
-  var fv = function(v, fmt) {
-    if (fmt === "pct") return (v * 100).toFixed(1) + "%";
-    if (fmt === "1") return v.toFixed(1);
-    return v.toFixed(2);
+  var ImpactBar = function(barProps) {
+    var pct = barProps.pct, baseline = barProps.baseline, color = barProps.color;
+    var maxWidth = Math.min(pct, 50);
+    return <div style={{position: "relative", height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden"}}>
+      <div style={{position: "absolute", left: 0, top: 0, height: "100%", width: pct + "%", background: color, borderRadius: "3px", transition: "width 0.5s"}} />
+      <div style={{position: "absolute", left: baseline + "%", top: "-2px", width: "1px", height: "10px", background: "rgba(255,255,255,0.3)"}} />
+    </div>;
   };
 
   return <div className="space-y-4">
@@ -930,77 +945,99 @@ function PlayerSpotlight(props) {
       <button onClick={function() { setPlayer(null); setQuery(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
     </div>}
 
-    {/* Spotlight card */}
-    {player && <div ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
+    {/* Impact card */}
+    {player && impact && <div ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
       {/* Branding header */}
       <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
         <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
-        <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 · SPOTLIGHT</span>
+        <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 · TEAM IMPACT</span>
       </div>
 
-      {/* Player hero */}
-      <div className="px-4 pt-4 pb-2">
+      {/* Player name + Impact grade hero */}
+      <div className="px-4 pt-4 pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-1.5 rounded-full" style={{background: teamColor, height: "44px", flexShrink: 0}} />
+          <div className="w-1.5 rounded-full" style={{background: teamColor, height: "52px", flexShrink: 0}} />
           <div className="flex-1 min-w-0">
-            <div style={{fontSize: "20px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{player.player_tag}</div>
+            <div style={{fontSize: "22px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{player.player_tag}</div>
             <div className="flex items-center" style={{gap: "3px", marginTop: "2px"}}><span style={{fontSize: "11px", color: "#555"}}>{player.team_short}</span><RoleBadge role={player.role} /></div>
           </div>
-          <div className="text-right flex-shrink-0">
-            <div style={{fontSize: "32px", fontWeight: 900, color: kdColor(s(player, "kd")), lineHeight: 1}}>{s(player, "kd").toFixed(2)}</div>
-            <div style={{fontSize: "9px", color: "#555", marginTop: "2px"}}>OVERALL K/D</div>
+          <div className="text-center flex-shrink-0" style={{minWidth: "64px"}}>
+            <div style={{fontSize: "42px", fontWeight: 900, color: impact.gradeColor, lineHeight: 1}}>{impact.grade}</div>
+            <div style={{fontSize: "8px", color: "#555", letterSpacing: "1px", marginTop: "2px"}}>IMPACT</div>
           </div>
         </div>
       </div>
 
-      {/* Impact section */}
-      {impact && <div className="mx-3 mb-2 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
-        <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "6px 10px 3px"}}>TEAM IMPACT</div>
-        <div className="grid grid-cols-2 gap-0">
-          <div className="text-center py-2" style={{borderRight: "1px solid rgba(255,255,255,0.04)"}}>
-            <div style={{fontSize: "20px", fontWeight: 900, color: impact.killPct > (100 / impact.rosterSize) ? "#52b788" : "#ffd166"}}>{impact.killPct.toFixed(1)}%</div>
-            <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>KILL SHARE</div>
+      {/* Three impact metrics */}
+      <div className="mx-3 mb-3 space-y-2">
+        {/* Kill Share */}
+        <div className="rounded-lg px-3 py-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}}>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div style={{fontSize: "9px", color: "#555", letterSpacing: "1px", textTransform: "uppercase"}}>Kill Share</div>
+              <div className="flex items-baseline gap-1.5">
+                <span style={{fontSize: "24px", fontWeight: 900, color: impact.killPct > impact.evenShare ? "#52b788" : impact.killPct > impact.evenShare - 2 ? "#ffd166" : "#ff6b6b", lineHeight: 1}}>{impact.killPct.toFixed(1)}%</span>
+                <span style={{fontSize: "10px", color: "#555"}}>of team kills</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div style={{fontSize: "10px", color: "#555"}}>even split</div>
+              <div style={{fontSize: "13px", fontWeight: 700, color: "#555"}}>{impact.evenShare.toFixed(1)}%</div>
+            </div>
           </div>
-          <div className="text-center py-2">
-            <div style={{fontSize: "20px", fontWeight: 900, color: impact.dmgPct > (100 / impact.rosterSize) ? "#52b788" : "#ffd166"}}>{impact.dmgPct.toFixed(1)}%</div>
-            <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>DMG SHARE</div>
+          <ImpactBar pct={impact.killPct * 2} baseline={impact.evenShare * 2} color={impact.killPct > impact.evenShare ? "#52b788" : "#ffd166"} />
+        </div>
+
+        {/* Damage Share */}
+        <div className="rounded-lg px-3 py-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}}>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div style={{fontSize: "9px", color: "#555", letterSpacing: "1px", textTransform: "uppercase"}}>Damage Share</div>
+              <div className="flex items-baseline gap-1.5">
+                <span style={{fontSize: "24px", fontWeight: 900, color: impact.dmgPct > impact.evenShare ? "#52b788" : impact.dmgPct > impact.evenShare - 2 ? "#ffd166" : "#ff6b6b", lineHeight: 1}}>{impact.dmgPct.toFixed(1)}%</span>
+                <span style={{fontSize: "10px", color: "#555"}}>of team damage</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div style={{fontSize: "10px", color: "#555"}}>even split</div>
+              <div style={{fontSize: "13px", fontWeight: 700, color: "#555"}}>{impact.evenShare.toFixed(1)}%</div>
+            </div>
+          </div>
+          <ImpactBar pct={impact.dmgPct * 2} baseline={impact.evenShare * 2} color={impact.dmgPct > impact.evenShare ? "#52b788" : "#ffd166"} />
+        </div>
+
+        {/* DMG/min vs Team Avg */}
+        <div className="rounded-lg px-3 py-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div style={{fontSize: "9px", color: "#555", letterSpacing: "1px", textTransform: "uppercase"}}>DMG / min</div>
+              <div className="flex items-baseline gap-1.5">
+                <span style={{fontSize: "24px", fontWeight: 900, color: "#fff", lineHeight: 1}}>{impact.playerDmgPerMin.toFixed(1)}</span>
+                <span style={{fontSize: "14px", fontWeight: 700, color: impact.dmgPerMinDiff >= 0 ? "#52b788" : "#ff6b6b"}}>{impact.dmgPerMinDiff >= 0 ? "+" : ""}{impact.dmgPerMinDiff.toFixed(1)}</span>
+                <span style={{fontSize: "10px", color: "#555"}}>vs team</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div style={{fontSize: "10px", color: "#555"}}>team avg</div>
+              <div style={{fontSize: "13px", fontWeight: 700, color: "#555"}}>{impact.teamAvgDmgPerMin.toFixed(1)}</div>
+            </div>
           </div>
         </div>
-      </div>}
-
-      {/* Stat breakdown */}
-      <div className="px-3 pb-1">
-        {spotlightStats.map(function(group) {
-          return <div key={group.section}>
-            <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "5px 0 1px"}}>{group.section}</div>
-            <div className="grid" style={{gridTemplateColumns: "repeat(" + group.rows.length + ", 1fr)", gap: "2px"}}>
-              {group.rows.map(function(row) {
-                var val = s(player, row.k);
-                var isKd = row.k.indexOf("kd") !== -1 || row.k === "kd";
-                var color = isKd ? kdColor(val) : "#c8c8d0";
-                return <div key={row.label} className="text-center py-1.5 rounded" style={{background: "rgba(255,255,255,0.02)"}}>
-                  <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.3px"}}>{row.label}</div>
-                  <div style={{fontSize: "14px", fontWeight: 700, color: color, fontVariantNumeric: "tabular-nums"}}>{fv(val, row.fmt)}</div>
-                </div>;
-              })}
-            </div>
-          </div>;
-        })}
       </div>
 
       {/* Footer */}
-      <div className="text-center pb-2.5 pt-1" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
+      <div className="text-center pb-2.5" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
     </div>}
 
-    {/* Share buttons */}
-    {player && <div className="flex gap-2">
+    {/* Share button */}
+    {player && impact && <div className="flex gap-2">
       <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
         {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
         <span>{sharing ? "Generating..." : "Share image"}</span>
       </button>
     </div>}
 
-    {!player && <div className="text-center py-8 opacity-30"><p className="text-sm">Search for a player to generate their spotlight card</p></div>}
+    {!player && <div className="text-center py-8 opacity-30"><p className="text-sm">Search for a player to see their team impact</p></div>}
   </div>;
 }
 

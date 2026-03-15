@@ -423,18 +423,10 @@ function CompareRow(props) {
   var w1 = v1 > v2, w2 = v2 > v1, tie = v1 === v2;
   var c1 = w1 ? "#52b788" : tie ? "#ffd166" : "#666";
   var c2 = w2 ? "#52b788" : tie ? "#ffd166" : "#666";
-  var bar1 = w1 ? 1 : tie ? 0.5 : 0.3;
-  var bar2 = w2 ? 1 : tie ? 0.5 : 0.3;
   return <div className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr auto 1fr", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-    <div className="flex items-center justify-end gap-2 pr-2">
-      <div style={{height: "3px", borderRadius: "2px", background: c1, opacity: bar1, width: w1 ? "40%" : "20%", transition: "width 0.3s"}} />
-      <span className="text-sm font-bold tabular-nums" style={{color: c1, minWidth: "44px", textAlign: "right"}}>{f(v1)}</span>
-    </div>
+    <div className="text-right pr-3"><span className="text-sm font-bold tabular-nums" style={{color: c1}}>{f(v1)}</span></div>
     <div className="text-center px-1" style={{fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px", color: "#555", minWidth: "64px"}}>{label}</div>
-    <div className="flex items-center gap-2 pl-2">
-      <span className="text-sm font-bold tabular-nums" style={{color: c2, minWidth: "44px"}}>{f(v2)}</span>
-      <div style={{height: "3px", borderRadius: "2px", background: c2, opacity: bar2, width: w2 ? "40%" : "20%", transition: "width 0.3s"}} />
-    </div>
+    <div className="text-left pl-3"><span className="text-sm font-bold tabular-nums" style={{color: c2}}>{f(v2)}</span></div>
   </div>;
 }
 

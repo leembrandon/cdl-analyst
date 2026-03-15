@@ -723,16 +723,14 @@ function PlayerCompare(props) {
     {p1 && p2 && shareMode === "full" && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
           <div className="text-xs opacity-40">{p1.team_name}</div>
-          <RoleBadge role={p1.role} />
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
           <div className="text-xs opacity-40">{p2.team_name}</div>
-          <RoleBadge role={p2.role} />
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>

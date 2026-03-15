@@ -163,7 +163,11 @@ function ShareRoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "9px", fontWeight: 600, padding: "1px 5px", borderRadius: "3px", marginLeft: "5px", display: "inline-block", verticalAlign: "middle", lineHeight: "16px", height: "16px", textAlign: "center"}}>{role}</span>;
+  return <span style={{display: "inline-block", marginLeft: "5px", verticalAlign: "middle", position: "relative", top: "-1px"}}>
+    <span style={{display: "table", background: "rgba(255,255,255,0.08)", borderRadius: "3px"}}>
+      <span style={{display: "table-cell", verticalAlign: "middle", padding: "2px 5px", fontSize: "9px", fontWeight: 600, color: c[role] || "#888", lineHeight: 1}}>{role}</span>
+    </span>
+  </span>;
 }
 
 function H2HRow(props) {

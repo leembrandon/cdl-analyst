@@ -31,23 +31,8 @@ async function fetchMatches() {
   return live.concat(upcoming);
 }
 async function fetchRosters() {
-  var teamData = await proxyFetch(SUPABASE_API + "/teams?select=id,name,name_short,color_hex&deleted_at=is.null&apikey=" + SUPABASE_KEY);
-  var eventTeams = await proxyFetch(SUPABASE_API + "/event_teams?select=id,team_id&event_id=eq." + CURRENT_EVENT_ID + "&apikey=" + SUPABASE_KEY);
-  var etIds = (eventTeams || []).map(function(et) { return et.id; }).join(",");
-  var etToTeam = {};
-  (eventTeams || []).forEach(function(et) { etToTeam[et.id] = et.team_id; });
-  var playerData = etIds ? await proxyFetch(SUPABASE_API + "/event_team_players?select=player_id,event_team_id,players!inner(id,tag,position_id,headshot)&event_team_id=in.(" + etIds + ")&apikey=" + SUPABASE_KEY) : [];
-  var teamPlayers = {};
-  (playerData || []).forEach(function(etp) {
-    var tid = etToTeam[etp.event_team_id];
-    if (!tid) return;
-    if (!teamPlayers[tid]) teamPlayers[tid] = [];
-    teamPlayers[tid].push({id: etp.players.id, tag: etp.players.tag, position_id: etp.players.position_id, headshot: etp.players.headshot, retired: false});
-  });
-  return (teamData || []).map(function(t) {
-    t.players = teamPlayers[t.id] || [];
-    return t;
-  });
+  var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/qc5mt7EbU7bkvD8K_eB00/en/cdl/teams-and-players.json");
+  return (d && d.pageProps && d.pageProps.teams) || [];
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";

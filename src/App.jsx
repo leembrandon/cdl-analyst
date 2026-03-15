@@ -8,11 +8,6 @@ const CURRENT_EVENT_ID = 102;
 const MY_SUPABASE_API = "https://xtxlopuvadwwuzvytqgo.supabase.co/rest/v1";
 const MY_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0eGxvcHV2YWR3d3V6dnl0cWdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1OTk2MjEsImV4cCI6MjA4OTE3NTYyMX0.MP8SGkba0Ye-d-RSRgEmfE6A4KmFTH5fG9S9aJoSnRI";
 
-// Standings Supabase (existing, external)
-const STANDINGS_SUPABASE_API = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1";
-const STANDINGS_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmcGlpdWZ4Y2NpdWp1Z3pqdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2ODk0MDMsImV4cCI6MjA2MDI2NTQwM30.36VuOTvrxtmR3nb-u3nnVYWzMBn9YP1bQFvUYF5T1OE";
-const STANDINGS_FIELDS = "select=*,team_logo_darkmode:team_id(logo_darkmode),team_logo_lightmode:team_id(logo_lightmode),team_name:team_id(name),team_name_short:team_id(name_short),event_name:event_id(name)";
-
 async function mySupaFetch(table, query) {
   var url = MY_SUPABASE_API + "/" + table + "?" + (query || "select=*");
   var res = await fetch(url, {headers: {"apikey": MY_SUPABASE_KEY, "Authorization": "Bearer " + MY_SUPABASE_KEY}});
@@ -54,10 +49,7 @@ async function fetchRosters() {
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";
-  var url = STANDINGS_SUPABASE_API + "/standings?" + STANDINGS_FIELDS + "&season_id=eq.2026&" + filter + "&order=rank.asc&apikey=" + STANDINGS_SUPABASE_KEY;
-  var res = await fetch(url, {headers: {"apikey": STANDINGS_SUPABASE_KEY}});
-  if (!res.ok) throw new Error("Standings fetch failed (" + res.status + ")");
-  return res.json();
+  return mySupaFetch("cdl_standings", "select=*&season_id=eq.2026&" + filter + "&order=rank.asc");
 }
 
 var s = function(obj, key, def) { if (def === undefined) def = 0; return (obj && obj[key] != null) ? obj[key] : def; };
@@ -372,7 +364,7 @@ function TeamsGrid(props) {
       var ts = analysis.teamStats[tid] || {};
       var season = analysis.standingsLookup[tid] || {};
       var color = ts.team_color || "#888";
-      var fullName = ts.team_name || (major.team_name && major.team_name.name) || "?";
+      var fullName = ts.team_name || major.team_name || "?";
       var kd = s(ts, "kd");
       var hpDiff = s(ts, "hp_average_differential");
       var avgWin = (s(ts, "hp_map_win_percentage") + s(ts, "snd_map_win_percentage") + s(ts, "ovl_map_win_percentage")) / 3;
@@ -966,7 +958,7 @@ export default function App() {
 
   if (error) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center p-6 rounded-xl max-w-md" style={{background: "rgba(233,69,96,0.1)", border: "1px solid rgba(233,69,96,0.3)"}}><p className="text-lg font-bold mb-2" style={{color: "#e94560"}}>Failed to load</p><p className="text-sm opacity-60">{error}</p><button onClick={function() { window.location.reload(); }} className="mt-4 px-4 py-2 rounded-lg text-sm font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button></div></div>;
 
-  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name && analysis.majorStandings[0].event_name.name) || "Major 2";
+  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major 2";
 
   return <div className="min-h-screen" style={{background: "#0d0d1a", color: "#c8c8d0"}}>
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>

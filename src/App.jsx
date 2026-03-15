@@ -32,18 +32,22 @@ async function fetchMatches() {
 }
 async function fetchRosters() {
   try {
-    // Fetch the page HTML to extract the current Next.js build ID
-    var res = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg/cdl/teams-and-players"));
-    var html = await res.text();
-    var match = html.match(/"buildId"\s*:\s*"([^"]+)"/);
-    if (!match) throw new Error("Could not find buildId");
-    var buildId = match[1];
-    var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + buildId + "/en/cdl/teams-and-players.json");
-    return (d && d.pageProps && d.pageProps.teams) || [];
-  } catch(e) {
-    console.error("fetchRosters error:", e);
-    return [];
-  }
+    // Try tRPC endpoint for CDL teams with rosters
+    var p = {"0":{"json":{"seasonId":2026,"onlyCDLStats":true}}};
+    var d = await proxyFetch("https://www.breakingpoint.gg/api/trpc/teams.getTeamsWithPlayers?batch=1&input=" + encodeURIComponent(JSON.stringify(p)));
+    var teams = (d && d[0] && d[0].result && d[0].result.data && d[0].result.data.json) || [];
+    if (teams.length > 0) return teams;
+  } catch(e) { console.warn("tRPC roster fetch failed, trying _next/data fallback:", e); }
+  try {
+    // Fallback: get buildId from a script tag on the homepage
+    var homeRes = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg/api/trpc/teams.getAllCDLTeams?batch=1&input=" + encodeURIComponent(JSON.stringify({"0":{"json":{"seasonId":2026}}}))));
+    if (homeRes.ok) {
+      var homeData = await homeRes.json();
+      var teams2 = (homeData && homeData[0] && homeData[0].result && homeData[0].result.data && homeData[0].result.data.json) || [];
+      if (teams2.length > 0) return teams2;
+    }
+  } catch(e2) { console.warn("Fallback roster fetch also failed:", e2); }
+  return [];
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";

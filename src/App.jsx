@@ -421,12 +421,20 @@ function CompareRow(props) {
   var label = props.label, v1 = props.v1, v2 = props.v2, fmt = props.fmt || "0.00";
   var f = function(v) { return fmt === "pct" ? v.toFixed(1) + "%" : fmt === "0.0" ? v.toFixed(1) : v.toFixed(2); };
   var w1 = v1 > v2, w2 = v2 > v1, tie = v1 === v2;
-  var c1 = w1 ? "#52b788" : tie ? "#ffd166" : "#888";
-  var c2 = w2 ? "#52b788" : tie ? "#ffd166" : "#888";
-  return <div className="grid grid-cols-3 items-center py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-    <div className="text-right pr-4"><span className="text-sm font-bold" style={{color: c1}}>{f(v1)}</span></div>
-    <div className="text-center text-xs uppercase tracking-wider opacity-40">{label}</div>
-    <div className="text-left pl-4"><span className="text-sm font-bold" style={{color: c2}}>{f(v2)}</span></div>
+  var c1 = w1 ? "#52b788" : tie ? "#ffd166" : "#666";
+  var c2 = w2 ? "#52b788" : tie ? "#ffd166" : "#666";
+  var bar1 = w1 ? 1 : tie ? 0.5 : 0.3;
+  var bar2 = w2 ? 1 : tie ? 0.5 : 0.3;
+  return <div className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr auto 1fr", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+    <div className="flex items-center justify-end gap-2 pr-2">
+      <div style={{height: "3px", borderRadius: "2px", background: c1, opacity: bar1, width: w1 ? "40%" : "20%", transition: "width 0.3s"}} />
+      <span className="text-sm font-bold tabular-nums" style={{color: c1, minWidth: "44px", textAlign: "right"}}>{f(v1)}</span>
+    </div>
+    <div className="text-center px-1" style={{fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px", color: "#555", minWidth: "64px"}}>{label}</div>
+    <div className="flex items-center gap-2 pl-2">
+      <span className="text-sm font-bold tabular-nums" style={{color: c2, minWidth: "44px"}}>{f(v2)}</span>
+      <div style={{height: "3px", borderRadius: "2px", background: c2, opacity: bar2, width: w2 ? "40%" : "20%", transition: "width 0.3s"}} />
+    </div>
   </div>;
 }
 
@@ -438,6 +446,7 @@ function PlayerCompare(props) {
   var [p2, setP2] = useState(null);
   var [show1, setShow1] = useState(false);
   var [show2, setShow2] = useState(false);
+  var [shareMode, setShareMode] = useState("full");
 
   var search = function(q) {
     if (q.length < 2) return [];
@@ -489,50 +498,134 @@ function PlayerCompare(props) {
 
   var handleItem = function(e, pickFn, p) { e.preventDefault(); e.stopPropagation(); pickFn(p); };
 
-  var fmtCompare = function(v, st) {
-    if (st.pctMul) return (v * 100).toFixed(1) + "%";
-    if (st.fmt === "pct") return v.toFixed(1) + "%";
-    if (st.fmt === "0.0") return v.toFixed(1);
-    return v.toFixed(2);
-  };
-
-  var compareColor = function(v1, v2, st) {
-    if (st.lower) return v1 < v2 ? "#52b788" : v1 > v2 ? "#888" : "#ffd166";
-    return v1 > v2 ? "#52b788" : v1 < v2 ? "#888" : "#ffd166";
-  };
+  var winner = p1 && p2 ? (p1Wins > p2Wins ? p1 : p2Wins > p1Wins ? p2 : null) : null;
+  var winnerWins = winner === p1 ? p1Wins : p2Wins;
+  var loserWins = winner === p1 ? p2Wins : p1Wins;
 
   return <div className="space-y-4">
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
-      <div className="relative">
-        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
-        {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
-          {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { handleItem(e, pick1, p); }} onTouchEnd={function(e) { handleItem(e, pick1, p); }}>
-            <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
+    {/* Search inputs — horizontal on mobile with VS between */}
+    <div className="flex gap-2 items-start">
+      <div className="relative flex-1">
+        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p1 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
+        {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
+          {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick1, p); }} onTouchEnd={function(e) { handleItem(e, pick1, p); }}>
+            <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
           </div>; })}
         </div>}
       </div>
-      <div className="flex items-center justify-center py-1 sm:pt-3"><div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560"}}>VS</div></div>
-      <div className="relative">
-        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
-        {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)"}}>
-          {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5" style={{fontSize: "14px"}} onMouseDown={function(e) { handleItem(e, pick2, p); }} onTouchEnd={function(e) { handleItem(e, pick2, p); }}>
-            <span className="text-white font-medium">{p.player_tag}</span><span className="text-xs opacity-40">{p.team_short}</span>
+      <div className="flex items-center justify-center pt-2"><div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{background: "rgba(233,69,96,0.15)", color: "#e94560", fontSize: "10px"}}>VS</div></div>
+      <div className="relative flex-1">
+        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p2 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
+        {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
+          {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick2, p); }} onTouchEnd={function(e) { handleItem(e, pick2, p); }}>
+            <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
           </div>; })}
         </div>}
       </div>
     </div>
 
-    {p1 && p2 && <div>
+    {/* View toggle + reset when both selected */}
+    {p1 && p2 && <div className="flex items-center justify-between">
+      <div className="flex gap-1">
+        {["full", "compact"].map(function(m) {
+          return <button key={m} onClick={function() { setShareMode(m); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: shareMode === m ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: shareMode === m ? "#e94560" : "#666"}}>{m === "full" ? "Full breakdown" : "Share card"}</button>;
+        })}
+      </div>
+      <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
+    </div>}
+
+    {/* ===== SHARE CARD MODE — compact, screenshot-optimized ===== */}
+    {p1 && p2 && shareMode === "compact" && <div id="compare-share-card" className="rounded-2xl overflow-hidden" style={{background: "linear-gradient(180deg, #111128 0%, #0d0d1a 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 4px 24px rgba(0,0,0,0.4)"}}>
+      {/* Header banner with branding */}
+      <div className="px-4 pt-3 pb-2" style={{background: "linear-gradient(135deg, rgba(233,69,96,0.12) 0%, rgba(83,168,182,0.08) 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-black tracking-widest" style={{color: "#e94560"}}>BARRACKS</span>
+          <span style={{fontSize: "9px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 STATS</span>
+        </div>
+      </div>
+
+      {/* Player matchup header */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="grid grid-cols-2 gap-3 items-center">
+          <div className="text-center">
+            <div className="text-base font-black text-white" style={{lineHeight: 1.2}}>{p1.player_tag}</div>
+            <div className="flex items-center justify-center gap-1 mt-0.5"><span style={{fontSize: "10px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
+          </div>
+          <div className="text-center">
+            <div className="text-base font-black text-white" style={{lineHeight: 1.2}}>{p2.player_tag}</div>
+            <div className="flex items-center justify-center gap-1 mt-0.5"><span style={{fontSize: "10px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
+          </div>
+        </div>
+
+        {/* Big K/D face-off */}
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <div className="text-center py-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div className="text-2xl font-black" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
+            <div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>OVERALL K/D</div>
+          </div>
+          <div className="text-center py-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div className="text-2xl font-black" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
+            <div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>OVERALL K/D</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Condensed stat rows — key stats only for share view */}
+      <div style={{padding: "0 12px"}}>
+        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>OVERALL</div>
+        <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
+        <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
+        <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
+
+        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>HARDPOINT</div>
+        <CompareRow label="K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
+        <CompareRow label="K/10" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
+        <CompareRow label="ENG/10" v1={s(p1, "hp_eng_10m")} v2={s(p2, "hp_eng_10m")} fmt="0.0" />
+
+        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>SEARCH & DESTROY</div>
+        <CompareRow label="K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
+        <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
+
+        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>OVERLOAD</div>
+        <CompareRow label="K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
+        <CompareRow label="K/10" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
+      </div>
+
+      {/* Verdict bar */}
+      <div className="mx-3 mt-3 mb-3 rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+        {/* Win bar visual */}
+        <div className="flex" style={{height: "4px"}}>
+          <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
+          <div style={{width: (totalCats > 0 ? ((totalCats - p1Wins - p2Wins) / totalCats * 100) : 0) + "%", background: "#ffd166"}} />
+          <div style={{width: (totalCats > 0 ? (p2Wins / totalCats * 100) : 50) + "%", background: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
+        </div>
+        <div className="grid grid-cols-3 items-center py-2.5 px-3">
+          <div className="text-left"><span className="text-lg font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</span><span style={{fontSize: "10px", color: "#555", marginLeft: "4px"}}>wins</span></div>
+          <div className="text-center">
+            {winner ? <div><div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>VERDICT</div><div className="text-xs font-black" style={{color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
+          </div>
+          <div className="text-right"><span style={{fontSize: "10px", color: "#555", marginRight: "4px"}}>wins</span><span className="text-lg font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</span></div>
+        </div>
+      </div>
+
+      {/* Footer branding */}
+      <div className="flex items-center justify-center gap-2 pb-2.5" style={{opacity: 0.3}}>
+        <span style={{fontSize: "9px", letterSpacing: "1px"}}>BARRACKS CDL STATS</span>
+      </div>
+    </div>}
+
+    {/* ===== FULL BREAKDOWN MODE — original detailed view ===== */}
+    {p1 && p2 && shareMode === "full" && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="text-lg font-bold text-white">{p1.player_tag}</div>
+        <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+          <div className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</div>
           <div className="text-xs opacity-40">{p1.team_name}</div>
           <RoleBadge role={p1.role} />
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
-        <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="text-lg font-bold text-white">{p2.player_tag}</div>
+        <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+          <div className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</div>
           <div className="text-xs opacity-40">{p2.team_name}</div>
           <RoleBadge role={p2.role} />
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
@@ -541,40 +634,32 @@ function PlayerCompare(props) {
       </div>
 
       <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)"}}>
-        <div className="grid grid-cols-3 items-center py-2 px-2" style={{background: "rgba(255,255,255,0.04)"}}>
-          <div className="text-right pr-4 text-xs font-bold" style={{color: "#e94560"}}>{p1.player_tag}</div>
-          <div className="text-center text-xs opacity-30">stat</div>
-          <div className="text-left pl-4 text-xs font-bold" style={{color: "#e94560"}}>{p2.player_tag}</div>
+        <div className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr auto 1fr", background: "rgba(255,255,255,0.04)"}}>
+          <div className="text-right pr-2 text-xs font-bold" style={{color: "#e94560"}}>{p1.player_tag}</div>
+          <div className="text-center text-xs opacity-30 px-1" style={{minWidth: "64px"}}>stat</div>
+          <div className="text-left pl-2 text-xs font-bold" style={{color: "#e94560"}}>{p2.player_tag}</div>
         </div>
 
         <div style={{padding: "0 8px"}}>
-          <div className="py-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overall</div>
-          </div>
+          <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>OVERALL</div>
           <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
           <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
           <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
 
-          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
-          </div>
+          <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>HARDPOINT</div>
           <CompareRow label="HP K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
           <CompareRow label="K/10" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
           <CompareRow label="D/10" v1={s(p1, "hp_d_10m")} v2={s(p2, "hp_d_10m")} fmt="0.0" />
           <CompareRow label="DMG/10" v1={s(p1, "hp_dmg_10m")} v2={s(p2, "hp_dmg_10m")} fmt="0.0" />
           <CompareRow label="ENG/10" v1={s(p1, "hp_eng_10m")} v2={s(p2, "hp_eng_10m")} fmt="0.0" />
 
-          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
-          </div>
+          <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>SEARCH & DESTROY</div>
           <CompareRow label="SnD K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
           <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
           <CompareRow label="DPR" v1={s(p1, "snd_dpr")} v2={s(p2, "snd_dpr")} />
           <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
 
-          <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overload</div>
-          </div>
+          <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>OVERLOAD</div>
           <CompareRow label="OVL K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
           <CompareRow label="K/10" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
           <CompareRow label="D/10" v1={s(p1, "ovl_d_10m")} v2={s(p2, "ovl_d_10m")} fmt="0.0" />
@@ -582,10 +667,20 @@ function PlayerCompare(props) {
           <CompareRow label="ENG/10" v1={s(p1, "ovl_eng_10m")} v2={s(p2, "ovl_eng_10m")} fmt="0.0" />
         </div>
 
-        <div className="grid grid-cols-3 items-center py-3 px-2" style={{borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)"}}>
-          <div className="text-right pr-4"><div className="text-xl font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
-          <div className="text-center text-xs opacity-30">of {totalCats}</div>
-          <div className="text-left pl-4"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
+        {/* Win bar visual + verdict */}
+        <div style={{borderTop: "1px solid rgba(255,255,255,0.06)"}}>
+          <div className="flex" style={{height: "4px"}}>
+            <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
+            <div style={{width: (totalCats > 0 ? ((totalCats - p1Wins - p2Wins) / totalCats * 100) : 0) + "%", background: "#ffd166"}} />
+            <div style={{width: (totalCats > 0 ? (p2Wins / totalCats * 100) : 50) + "%", background: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
+          </div>
+          <div className="grid grid-cols-3 items-center py-3 px-3" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div className="text-left"><div className="text-xl font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
+            <div className="text-center">
+              {winner ? <div><div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>VERDICT</div><div className="text-sm font-black" style={{color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "11px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
+            </div>
+            <div className="text-right"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
+          </div>
         </div>
       </div>
     </div>}

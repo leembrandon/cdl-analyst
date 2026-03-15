@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
+const CURRENT_EVENT_ID = 102;
 const SUPABASE_API = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1";
 const SUPABASE_BASE = SUPABASE_API + "/standings";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmcGlpdWZ4Y2NpdWp1Z3pqdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2ODk0MDMsImV4cCI6MjA2MDI2NTQwM30.36VuOTvrxtmR3nb-u3nnVYWzMBn9YP1bQFvUYF5T1OE";
@@ -31,9 +32,20 @@ async function fetchMatches() {
 }
 async function fetchRosters() {
   var teamData = await proxyFetch(SUPABASE_API + "/teams?select=id,name,name_short,color_hex&deleted_at=is.null&apikey=" + SUPABASE_KEY);
-  var playerData = await proxyFetch(SUPABASE_API + "/players?select=id,tag,position_id,current_team_id,retired,headshot&current_team_id=not.is.null&retired=eq.false&apikey=" + SUPABASE_KEY);
+  var eventTeams = await proxyFetch(SUPABASE_API + "/event_teams?select=id,team_id&event_id=eq." + CURRENT_EVENT_ID + "&apikey=" + SUPABASE_KEY);
+  var etIds = (eventTeams || []).map(function(et) { return et.id; }).join(",");
+  var etToTeam = {};
+  (eventTeams || []).forEach(function(et) { etToTeam[et.id] = et.team_id; });
+  var playerData = etIds ? await proxyFetch(SUPABASE_API + "/event_team_players?select=player_id,event_team_id,players!inner(id,tag,position_id,headshot)&event_team_id=in.(" + etIds + ")&apikey=" + SUPABASE_KEY) : [];
+  var teamPlayers = {};
+  (playerData || []).forEach(function(etp) {
+    var tid = etToTeam[etp.event_team_id];
+    if (!tid) return;
+    if (!teamPlayers[tid]) teamPlayers[tid] = [];
+    teamPlayers[tid].push({id: etp.players.id, tag: etp.players.tag, position_id: etp.players.position_id, headshot: etp.players.headshot, retired: false});
+  });
   return (teamData || []).map(function(t) {
-    t.players = (playerData || []).filter(function(p) { return p.current_team_id === t.id; });
+    t.players = teamPlayers[t.id] || [];
     return t;
   });
 }
@@ -928,7 +940,7 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
-        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(102)]);
+        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID)]);
         setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]));
       } catch(e) {
         console.error(e);

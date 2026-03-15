@@ -639,6 +639,15 @@ function PlayerCompare(props) {
           {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
         ]}
       ];
+      var shareP1Wins = 0, shareP2Wins = 0;
+      shareStats.forEach(function(group) {
+        group.rows.forEach(function(row) {
+          if (row.v1 > row.v2) shareP1Wins++;
+          else if (row.v2 > row.v1) shareP2Wins++;
+        });
+      });
+      var shareTotalCats = shareP1Wins + shareP2Wins + shareStats.reduce(function(n, g) { return n + g.rows.filter(function(r) { return r.v1 === r.v2; }).length; }, 0);
+      var shareWinner = shareP1Wins > shareP2Wins ? p1 : shareP2Wins > shareP1Wins ? p2 : null;
       return <div id="compare-share-card" ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
         {/* Branding header — single tight line */}
         <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
@@ -694,16 +703,16 @@ function PlayerCompare(props) {
         {/* Verdict — tight bar + result */}
         <div className="mx-3 mb-2.5 mt-1 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
           <div className="flex" style={{height: "3px"}}>
-            <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}} />
-            <div style={{width: (totalCats > 0 ? ((totalCats - p1Wins - p2Wins) / totalCats * 100) : 0) + "%", background: "#ffd166"}} />
-            <div style={{width: (totalCats > 0 ? (p2Wins / totalCats * 100) : 50) + "%", background: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}} />
+            <div style={{width: (shareTotalCats > 0 ? (shareP1Wins / shareTotalCats * 100) : 50) + "%", background: shareP1Wins >= shareP2Wins ? "#52b788" : "#ff6b6b"}} />
+            <div style={{width: (shareTotalCats > 0 ? ((shareTotalCats - shareP1Wins - shareP2Wins) / shareTotalCats * 100) : 0) + "%", background: "#ffd166"}} />
+            <div style={{width: (shareTotalCats > 0 ? (shareP2Wins / shareTotalCats * 100) : 50) + "%", background: shareP2Wins >= shareP1Wins ? "#52b788" : "#ff6b6b"}} />
           </div>
           <div style={{display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", padding: "6px 10px"}}>
-            <div className="text-left"><span style={{fontSize: "18px", fontWeight: 900, color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</span><span style={{fontSize: "9px", color: "#555", marginLeft: "3px"}}>wins</span></div>
+            <div className="text-left"><span style={{fontSize: "18px", fontWeight: 900, color: shareP1Wins >= shareP2Wins ? "#52b788" : "#ff6b6b"}}>{shareP1Wins}</span><span style={{fontSize: "9px", color: "#555", marginLeft: "3px"}}>wins</span></div>
             <div className="text-center">
-              {winner ? <div><div style={{fontSize: "7px", color: "#555", letterSpacing: "1px"}}>VERDICT</div><div style={{fontSize: "11px", fontWeight: 900, color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
+              {shareWinner ? <div><div style={{fontSize: "7px", color: "#555", letterSpacing: "1px"}}>VERDICT</div><div style={{fontSize: "11px", fontWeight: 900, color: "#52b788"}}>{shareWinner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
             </div>
-            <div className="text-right"><span style={{fontSize: "9px", color: "#555", marginRight: "3px"}}>wins</span><span style={{fontSize: "18px", fontWeight: 900, color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</span></div>
+            <div className="text-right"><span style={{fontSize: "9px", color: "#555", marginRight: "3px"}}>wins</span><span style={{fontSize: "18px", fontWeight: 900, color: shareP2Wins >= shareP1Wins ? "#52b788" : "#ff6b6b"}}>{shareP2Wins}</span></div>
           </div>
         </div>
 

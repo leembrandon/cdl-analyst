@@ -802,6 +802,226 @@ function PlayerCompare(props) {
   </div>;
 }
 
+function PlayerSpotlight(props) {
+  var analysis = props.analysis;
+  var [query, setQuery] = useState("");
+  var [player, setPlayer] = useState(null);
+  var [showResults, setShowResults] = useState(false);
+  var [sharing, setSharing] = useState(false);
+  var [linkCopied, setLinkCopied] = useState(false);
+  var cardRef = useRef(null);
+
+  var results = useMemo(function() {
+    if (query.length < 2) return [];
+    var q = query.toLowerCase();
+    return analysis.playerStats.filter(function(p) {
+      return (p.player_tag && p.player_tag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1);
+    }).slice(0, 6);
+  }, [query, analysis]);
+
+  var pickPlayer = function(p) { setPlayer(p); setQuery(p.player_tag); setShowResults(false); if (document.activeElement) document.activeElement.blur(); };
+  var handleItem = function(e, p) { e.preventDefault(); e.stopPropagation(); pickPlayer(p); };
+
+  // Compute impact metrics when a player is selected
+  var impact = useMemo(function() {
+    if (!player || !player.team_id) return null;
+    var roster = analysis.rosterStats(player.team_id);
+    if (!roster || roster.length === 0) return null;
+
+    var totalKills = 0, totalDeaths = 0, totalDmg = 0;
+    var playerKills = 0, playerDmg = 0;
+
+    roster.forEach(function(p) {
+      var k = s(p, "total_kills");
+      var d = s(p, "total_deaths");
+      var dmg = s(p, "total_damage");
+      totalKills += k;
+      totalDeaths += d;
+      totalDmg += dmg;
+      if (p.player_id === player.player_id) {
+        playerKills = k;
+        playerDmg = dmg;
+      }
+    });
+
+    // If totals aren't available, estimate from per-minute/per-10 stats
+    if (totalKills === 0) {
+      var matches = s(player, "matches_played") || 1;
+      roster.forEach(function(p) {
+        var m = s(p, "matches_played") || 1;
+        var kEst = s(p, "kd") * s(p, "total_deaths") || s(p, "hp_k_10m") * m * 2.5;
+        var dEst = s(p, "dmg_per_min") * m * 10;
+        totalKills += kEst;
+        totalDmg += dEst;
+        if (p.player_id === player.player_id) {
+          playerKills = kEst;
+          playerDmg = dEst;
+        }
+      });
+    }
+
+    var teamAvgKd = roster.reduce(function(sum, p) { return sum + s(p, "kd"); }, 0) / roster.length;
+    var killPct = totalKills > 0 ? (playerKills / totalKills * 100) : 0;
+    var dmgPct = totalDmg > 0 ? (playerDmg / totalDmg * 100) : 0;
+    var kdDiff = s(player, "kd") - teamAvgKd;
+
+    return { killPct: killPct, dmgPct: dmgPct, kdDiff: kdDiff, teamAvgKd: teamAvgKd, rosterSize: roster.length };
+  }, [player, analysis]);
+
+  var teamColor = useMemo(function() {
+    if (!player || !player.team_id) return "#888";
+    var ts = analysis.teamStats[player.team_id];
+    return (ts && ts.team_color) || "#888";
+  }, [player, analysis]);
+
+  var handleShareImage = function() {
+    if (!cardRef.current || sharing) return;
+    setSharing(true);
+    var script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.onload = function() {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
+        canvas.toBlob(function(blob) {
+          if (!blob) { setSharing(false); return; }
+          var file = new File([blob], "barracks-spotlight.png", {type: "image/png"});
+          if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+            navigator.share({files: [file], title: (player ? player.player_tag : "") + " — Barracks CDL Spotlight"}).catch(function() {}).finally(function() { setSharing(false); });
+          } else {
+            var link = document.createElement("a");
+            link.download = "barracks-" + (player ? player.player_tag : "player") + "-spotlight.png";
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            setSharing(false);
+          }
+        }, "image/png");
+      }).catch(function() { setSharing(false); });
+    };
+    script.onerror = function() { setSharing(false); };
+    document.head.appendChild(script);
+  };
+
+  var spotlightStats = [
+    {section: "OVERALL", rows: [
+      {label: "K/D", k: "kd", fmt: "2"},
+      {label: "DMG/m", k: "dmg_per_min", fmt: "1"}
+    ]},
+    {section: "HARDPOINT", rows: [
+      {label: "K/D", k: "hp_kd", fmt: "2"},
+      {label: "K/10", k: "hp_k_10m", fmt: "1"},
+      {label: "D/10", k: "hp_d_10m", fmt: "1"},
+      {label: "DMG/10", k: "hp_dmg_10m", fmt: "1"},
+      {label: "ENG/10", k: "hp_eng_10m", fmt: "1"}
+    ]},
+    {section: "S&D", rows: [
+      {label: "K/D", k: "snd_kd", fmt: "2"},
+      {label: "KPR", k: "snd_kpr", fmt: "2"},
+      {label: "DPR", k: "snd_dpr", fmt: "2"},
+      {label: "FB%", k: "first_blood_percentage", fmt: "pct"}
+    ]},
+    {section: "OVERLOAD", rows: [
+      {label: "K/D", k: "ovl_kd", fmt: "2"},
+      {label: "K/10", k: "ovl_k_10m", fmt: "1"},
+      {label: "D/10", k: "ovl_d_10m", fmt: "1"},
+      {label: "DMG/10", k: "ovl_dmg_10m", fmt: "1"},
+      {label: "ENG/10", k: "ovl_eng_10m", fmt: "1"}
+    ]}
+  ];
+
+  var fv = function(v, fmt) {
+    if (fmt === "pct") return (v * 100).toFixed(1) + "%";
+    if (fmt === "1") return v.toFixed(1);
+    return v.toFixed(2);
+  };
+
+  return <div className="space-y-4">
+    {/* Search input */}
+    <div className="relative">
+      <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); setPlayer(null); setShowResults(true); }} onFocus={function() { setShowResults(true); }} onBlur={function() { setTimeout(function() { setShowResults(false); }, 300); }} placeholder="Search for a player..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: player ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
+      {showResults && results.length > 0 && !player && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
+        {results.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, p); }} onTouchEnd={function(e) { handleItem(e, p); }}>
+          <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
+        </div>; })}
+      </div>}
+    </div>
+
+    {player && <div className="flex items-center justify-end">
+      <button onClick={function() { setPlayer(null); setQuery(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
+    </div>}
+
+    {/* Spotlight card */}
+    {player && <div ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
+      {/* Branding header */}
+      <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
+        <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
+        <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 · SPOTLIGHT</span>
+      </div>
+
+      {/* Player hero */}
+      <div className="px-4 pt-4 pb-2">
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 rounded-full" style={{background: teamColor, height: "44px", flexShrink: 0}} />
+          <div className="flex-1 min-w-0">
+            <div style={{fontSize: "20px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{player.player_tag}</div>
+            <div className="flex items-center" style={{gap: "3px", marginTop: "2px"}}><span style={{fontSize: "11px", color: "#555"}}>{player.team_short}</span><RoleBadge role={player.role} /></div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div style={{fontSize: "32px", fontWeight: 900, color: kdColor(s(player, "kd")), lineHeight: 1}}>{s(player, "kd").toFixed(2)}</div>
+            <div style={{fontSize: "9px", color: "#555", marginTop: "2px"}}>OVERALL K/D</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Impact section */}
+      {impact && <div className="mx-3 mb-2 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
+        <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "6px 10px 3px"}}>TEAM IMPACT</div>
+        <div className="grid grid-cols-2 gap-0">
+          <div className="text-center py-2" style={{borderRight: "1px solid rgba(255,255,255,0.04)"}}>
+            <div style={{fontSize: "20px", fontWeight: 900, color: impact.killPct > (100 / impact.rosterSize) ? "#52b788" : "#ffd166"}}>{impact.killPct.toFixed(1)}%</div>
+            <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>KILL SHARE</div>
+          </div>
+          <div className="text-center py-2">
+            <div style={{fontSize: "20px", fontWeight: 900, color: impact.dmgPct > (100 / impact.rosterSize) ? "#52b788" : "#ffd166"}}>{impact.dmgPct.toFixed(1)}%</div>
+            <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>DMG SHARE</div>
+          </div>
+        </div>
+      </div>}
+
+      {/* Stat breakdown */}
+      <div className="px-3 pb-1">
+        {spotlightStats.map(function(group) {
+          return <div key={group.section}>
+            <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "5px 0 1px"}}>{group.section}</div>
+            <div className="grid" style={{gridTemplateColumns: "repeat(" + group.rows.length + ", 1fr)", gap: "2px"}}>
+              {group.rows.map(function(row) {
+                var val = s(player, row.k);
+                var isKd = row.k.indexOf("kd") !== -1 || row.k === "kd";
+                var color = isKd ? kdColor(val) : "#c8c8d0";
+                return <div key={row.label} className="text-center py-1.5 rounded" style={{background: "rgba(255,255,255,0.02)"}}>
+                  <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.3px"}}>{row.label}</div>
+                  <div style={{fontSize: "14px", fontWeight: 700, color: color, fontVariantNumeric: "tabular-nums"}}>{fv(val, row.fmt)}</div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })}
+      </div>
+
+      {/* Footer */}
+      <div className="text-center pb-2.5 pt-1" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
+    </div>}
+
+    {/* Share buttons */}
+    {player && <div className="flex gap-2">
+      <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
+        {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+        <span>{sharing ? "Generating..." : "Share image"}</span>
+      </button>
+    </div>}
+
+    {!player && <div className="text-center py-8 opacity-30"><p className="text-sm">Search for a player to generate their spotlight card</p></div>}
+  </div>;
+}
+
 function PlayerLeaderboard(props) {
   var analysis = props.analysis;
   var [sortBy, setSortBy] = useState("kd");
@@ -906,7 +1126,7 @@ function PlayerLeaderboard(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Search"];
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Spotlight", "Players", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
@@ -969,6 +1189,8 @@ export default function App() {
       </div>}
 
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
+
+      {tab === "Spotlight" && <div><h2 className="text-lg font-bold text-white mb-4">Player spotlight</h2><PlayerSpotlight analysis={analysis} /></div>}
 
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
 

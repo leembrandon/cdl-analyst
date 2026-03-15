@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
-const SUPABASE_BASE = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1/standings";
+const SUPABASE_API = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1";
+const SUPABASE_BASE = SUPABASE_API + "/standings";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmcGlpdWZ4Y2NpdWp1Z3pqdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2ODk0MDMsImV4cCI6MjA2MDI2NTQwM30.36VuOTvrxtmR3nb-u3nnVYWzMBn9YP1bQFvUYF5T1OE";
 const STANDINGS_FIELDS = "select=*,team_logo_darkmode:team_id(logo_darkmode),team_logo_lightmode:team_id(logo_lightmode),team_name:team_id(name),team_name_short:team_id(name_short),event_name:event_id(name)";
 
@@ -29,8 +30,12 @@ async function fetchMatches() {
   return live.concat(upcoming);
 }
 async function fetchRosters() {
-  var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/qc5mt7EbU7bkvD8K_eB00/en/cdl/teams-and-players.json");
-  return (d && d.pageProps && d.pageProps.teams) || [];
+  var teamData = await proxyFetch(SUPABASE_API + "/teams?select=id,name,name_short,color_hex&deleted_at=is.null&apikey=" + SUPABASE_KEY);
+  var playerData = await proxyFetch(SUPABASE_API + "/players?select=id,tag,position_id,current_team_id,retired,headshot&current_team_id=not.is.null&retired=eq.false&apikey=" + SUPABASE_KEY);
+  return (teamData || []).map(function(t) {
+    t.players = (playerData || []).filter(function(p) { return p.current_team_id === t.id; });
+    return t;
+  });
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";

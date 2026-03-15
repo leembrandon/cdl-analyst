@@ -534,7 +534,6 @@ function PlayerCompare(props) {
   var stats = [
     {label: "K/D", k: "kd"},
     {label: "DMG/min", k: "dmg_per_min", fmt: "0.0"},
-    {label: "FB%", k: "first_blood_percentage", fmt: "pct", pctMul: true},
     {label: "HP K/D", k: "hp_kd"},
     {label: "HP K/10", k: "hp_k_10m", fmt: "0.0"},
     {label: "HP D/10", k: "hp_d_10m", fmt: "0.0", lower: true},
@@ -618,8 +617,7 @@ function PlayerCompare(props) {
       var shareStats = [
         {section: "OVERALL", rows: [
           {label: "K/D", v1: s(p1,"kd"), v2: s(p2,"kd"), fmt: "2"},
-          {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"},
-          {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
+          {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"}
         ]},
         {section: "HARDPOINT", rows: [
           {label: "K/D", v1: s(p1,"hp_kd"), v2: s(p2,"hp_kd"), fmt: "2"},
@@ -628,7 +626,8 @@ function PlayerCompare(props) {
         ]},
         {section: "S&D", rows: [
           {label: "K/D", v1: s(p1,"snd_kd"), v2: s(p2,"snd_kd"), fmt: "2"},
-          {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"}
+          {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"},
+          {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
         ]},
         {section: "OVERLOAD", rows: [
           {label: "K/D", v1: s(p1,"ovl_kd"), v2: s(p2,"ovl_kd"), fmt: "2"},
@@ -750,7 +749,6 @@ function PlayerCompare(props) {
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>OVERALL</div>
           <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
           <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
-          <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
 
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>HARDPOINT</div>
           <CompareRow label="HP K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />

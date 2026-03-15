@@ -645,13 +645,13 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</div>
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "9px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
+              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_short}</div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</div>
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "9px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
+              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_short}</div>
             </div>
           </div>
           {/* K/D hero numbers */}

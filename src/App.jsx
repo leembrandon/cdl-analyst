@@ -703,7 +703,7 @@ function PlayerCompare(props) {
         </div>
 
         {/* Footer */}
-        <div className="text-center pb-2" style={{opacity: 0.25}}><span style={{fontSize: "8px", letterSpacing: "1.5px"}}>BARRACKS · CDL STATS</span></div>
+        <div className="text-center pb-2.5" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
       </div>;
     }()}
 

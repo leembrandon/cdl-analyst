@@ -158,7 +158,7 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span className="text-xs rounded ml-1.5" style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "2px 6px", lineHeight: 1, verticalAlign: "middle"}}>{role}</span>;
+  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", display: "inline-block", height: "16px", lineHeight: "16px", paddingLeft: "6px", paddingRight: "6px", borderRadius: "3px", marginLeft: "6px", verticalAlign: "middle", textAlign: "center"}}>{role}</span>;
 }
 
 function H2HRow(props) {

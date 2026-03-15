@@ -31,8 +31,19 @@ async function fetchMatches() {
   return live.concat(upcoming);
 }
 async function fetchRosters() {
-  var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/qc5mt7EbU7bkvD8K_eB00/en/cdl/teams-and-players.json");
-  return (d && d.pageProps && d.pageProps.teams) || [];
+  try {
+    // Fetch the page HTML to extract the current Next.js build ID
+    var res = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg/cdl/teams-and-players"));
+    var html = await res.text();
+    var match = html.match(/"buildId"\s*:\s*"([^"]+)"/);
+    if (!match) throw new Error("Could not find buildId");
+    var buildId = match[1];
+    var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + buildId + "/en/cdl/teams-and-players.json");
+    return (d && d.pageProps && d.pageProps.teams) || [];
+  } catch(e) {
+    console.error("fetchRosters error:", e);
+    return [];
+  }
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";
@@ -656,13 +667,13 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span></div>
+              <div className="flex items-center justify-center" style={{gap: "3px", marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span></div>
+              <div className="flex items-center justify-center" style={{gap: "3px", marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
             </div>
           </div>
           {/* K/D hero numbers */}
@@ -734,14 +745,14 @@ function PlayerCompare(props) {
     {p1 && p2 && shareMode === "full" && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
-          <div className="text-xs opacity-40">{p1.team_name}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p1.team_name}</span><RoleBadge role={p1.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
-          <div className="text-xs opacity-40">{p2.team_name}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p2.team_name}</span><RoleBadge role={p2.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
@@ -799,6 +810,254 @@ function PlayerCompare(props) {
     </div>}
 
     {(!p1 || !p2) && <div className="text-center py-8 opacity-30"><p className="text-sm">Select two players to compare their stats</p></div>}
+  </div>;
+}
+
+function PlayerSpotlight(props) {
+  var analysis = props.analysis;
+  var [query, setQuery] = useState("");
+  var [player, setPlayer] = useState(null);
+  var [showResults, setShowResults] = useState(false);
+  var [sharing, setSharing] = useState(false);
+  var cardRef = useRef(null);
+
+  var results = useMemo(function() {
+    if (query.length < 2) return [];
+    var q = query.toLowerCase();
+    return analysis.playerStats.filter(function(p) {
+      return (p.player_tag && p.player_tag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1);
+    }).slice(0, 6);
+  }, [query, analysis]);
+
+  var pickPlayer = function(p) { setPlayer(p); setQuery(p.player_tag); setShowResults(false); if (document.activeElement) document.activeElement.blur(); };
+  var handleItem = function(e, p) { e.preventDefault(); e.stopPropagation(); pickPlayer(p); };
+
+  var pirCategories = [
+    {name: "Slaying", weight: 0.25, color: "#e94560", stats: [
+      {key: "kd", label: "K/D"},
+      {key: "ntk_pct", label: "NTK%"},
+      {key: "dmg_per_min", label: "DMG/m"}
+    ]},
+    {name: "Opening Duels", weight: 0.15, color: "#ff9f43", stats: [
+      {key: "first_blood_percentage", label: "FB%"},
+      {key: "snd_odw_pct", label: "SnD ODW%"}
+    ]},
+    {name: "Objective", weight: 0.20, color: "#53a8b6", stats: [
+      {key: "hp_obj_10m", label: "HP Hill/10"},
+      {key: "snd_plants_defuses_per_round", label: "SnD P+D/R"},
+      {key: "ovl_overloads_per_game", label: "OVL OL/G"}
+    ]},
+    {name: "Damage", weight: 0.15, color: "#ffd166", stats: [
+      {key: "hp_dmg_10m", label: "HP DMG/10"},
+      {key: "snd_damage_per_round", label: "SnD DMG/R"},
+      {key: "ovl_dmg_10m", label: "OVL DMG/10"}
+    ]},
+    {name: "Playmaking", weight: 0.15, color: "#a855f7", stats: [
+      {key: "_snd_clutch_per_game", label: "SnD Clt/G"},
+      {key: "_total_clutch_per_game", label: "Clutch/G"}
+    ]},
+    {name: "Enablement", weight: 0.10, color: "#52b788", stats: [
+      {key: "hp_a_10m", label: "HP A/10"},
+      {key: "ovl_a_10m", label: "OVL A/10"},
+      {key: "snd_apr", label: "SnD APR"}
+    ]}
+  ];
+
+  var pirData = useMemo(function() {
+    var allPlayers = analysis.playerStats;
+    var total = allPlayers.length;
+    if (total < 2) return null;
+
+    var enriched = allPlayers.map(function(p) {
+      var sndGc = s(p, "snd_game_count") || s(p, "matches_played") || 1;
+      var totalGc = s(p, "matches_played") || 1;
+      var sndClutchPerGame = s(p, "snd_clutch_wins") / sndGc;
+      var totalClutchPerGame = (s(p, "one_v_one_win_count") + s(p, "one_v_two_win_count") + s(p, "one_v_three_win_count") + s(p, "one_v_four_win_count")) / totalGc;
+      return {player_id: p.player_id, _snd_clutch_per_game: sndClutchPerGame || 0, _total_clutch_per_game: totalClutchPerGame || 0};
+    });
+    var derivedLookup = {};
+    enriched.forEach(function(e) { derivedLookup[e.player_id] = e; });
+
+    var statRanks = {};
+    pirCategories.forEach(function(cat) {
+      cat.stats.forEach(function(st) {
+        var sorted = allPlayers.slice().sort(function(a, b) {
+          var va = st.key.charAt(0) === "_" ? s(derivedLookup[a.player_id], st.key) : s(a, st.key);
+          var vb = st.key.charAt(0) === "_" ? s(derivedLookup[b.player_id], st.key) : s(b, st.key);
+          return vb - va;
+        });
+        statRanks[st.key] = sorted;
+      });
+    });
+
+    return {total: total, statRanks: statRanks, derivedLookup: derivedLookup};
+  }, [analysis]);
+
+  var pir = useMemo(function() {
+    if (!player || !pirData) return null;
+    var total = pirData.total;
+    var derived = pirData.derivedLookup[player.player_id] || {};
+
+    var categoryScores = [];
+    pirCategories.forEach(function(cat) {
+      var statResults = [];
+      cat.stats.forEach(function(st) {
+        var list = pirData.statRanks[st.key];
+        var rank = 1;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].player_id === player.player_id) { rank = i + 1; break; }
+        }
+        var percentile = total > 1 ? ((total - rank) / (total - 1)) * 100 : 50;
+        var rawVal = st.key.charAt(0) === "_" ? s(derived, st.key) : s(player, st.key);
+        statResults.push({key: st.key, label: st.label, rank: rank, percentile: percentile, value: rawVal});
+      });
+      var catScore = statResults.reduce(function(sum, sr) { return sum + sr.percentile; }, 0) / statResults.length;
+      categoryScores.push({name: cat.name, weight: cat.weight, color: cat.color, score: catScore, stats: statResults});
+    });
+
+    var finalPIR = categoryScores.reduce(function(sum, cat) { return sum + cat.score * cat.weight; }, 0);
+
+    var grade, gradeColor;
+    if (finalPIR >= 95) { grade = "S+"; gradeColor = "#52b788"; }
+    else if (finalPIR >= 90) { grade = "S"; gradeColor = "#52b788"; }
+    else if (finalPIR >= 85) { grade = "A+"; gradeColor = "#a3be8c"; }
+    else if (finalPIR >= 78) { grade = "A"; gradeColor = "#a3be8c"; }
+    else if (finalPIR >= 70) { grade = "B+"; gradeColor = "#ffd166"; }
+    else if (finalPIR >= 60) { grade = "B"; gradeColor = "#ffd166"; }
+    else if (finalPIR >= 45) { grade = "C"; gradeColor = "#ff9f43"; }
+    else if (finalPIR >= 30) { grade = "D"; gradeColor = "#ff6b6b"; }
+    else { grade = "F"; gradeColor = "#ff6b6b"; }
+
+    return {score: finalPIR, grade: grade, gradeColor: gradeColor, categories: categoryScores, total: total};
+  }, [player, pirData]);
+
+  var teamColor = useMemo(function() {
+    if (!player || !player.team_id) return "#888";
+    var ts = analysis.teamStats[player.team_id];
+    return (ts && ts.team_color) || "#888";
+  }, [player, analysis]);
+
+  var handleShareImage = function() {
+    if (!cardRef.current || sharing) return;
+    setSharing(true);
+    var script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.onload = function() {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
+        canvas.toBlob(function(blob) {
+          if (!blob) { setSharing(false); return; }
+          var file = new File([blob], "barracks-pir.png", {type: "image/png"});
+          if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+            navigator.share({files: [file], title: (player ? player.player_tag : "") + " — Barracks PIR"}).catch(function() {}).finally(function() { setSharing(false); });
+          } else {
+            var link = document.createElement("a");
+            link.download = "barracks-" + (player ? player.player_tag : "player") + "-pir.png";
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            setSharing(false);
+          }
+        }, "image/png");
+      }).catch(function() { setSharing(false); });
+    };
+    script.onerror = function() { setSharing(false); };
+    document.head.appendChild(script);
+  };
+
+  return <div className="space-y-4">
+    <div className="relative">
+      <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); setPlayer(null); setShowResults(true); }} onFocus={function() { setShowResults(true); }} onBlur={function() { setTimeout(function() { setShowResults(false); }, 300); }} placeholder="Search for a player..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: player ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
+      {showResults && results.length > 0 && !player && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
+        {results.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, p); }} onTouchEnd={function(e) { handleItem(e, p); }}>
+          <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
+        </div>; })}
+      </div>}
+    </div>
+
+    {player && <div className="flex items-center justify-end">
+      <button onClick={function() { setPlayer(null); setQuery(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
+    </div>}
+
+    {player && pir && <div ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
+      <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
+        <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
+        <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 · PLAYER IMPACT RATING</span>
+      </div>
+
+      <div className="px-4 pt-4 pb-2">
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 rounded-full" style={{background: teamColor, height: "56px", flexShrink: 0}} />
+          <div className="flex-1 min-w-0">
+            <div style={{fontSize: "22px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{player.player_tag}</div>
+            <div className="flex items-center" style={{gap: "3px", marginTop: "2px"}}><span style={{fontSize: "11px", color: "#555"}}>{player.team_short}</span><RoleBadge role={player.role} /></div>
+          </div>
+          <div className="text-center flex-shrink-0">
+            <div style={{fontSize: "40px", fontWeight: 900, color: pir.gradeColor, lineHeight: 1}}>{pir.grade}</div>
+            <div style={{fontSize: "16px", fontWeight: 800, color: pir.gradeColor, marginTop: "2px"}}>{pir.score.toFixed(1)}</div>
+            <div style={{fontSize: "7px", color: "#555", letterSpacing: "1px", marginTop: "1px"}}>PIR SCORE</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-3 mb-2">
+        {pir.categories.map(function(cat) {
+          var barWidth = Math.max(2, cat.score);
+          var scoreColor = cat.score >= 85 ? "#52b788" : cat.score >= 70 ? "#a3be8c" : cat.score >= 50 ? "#ffd166" : cat.score >= 30 ? "#ff9f43" : "#ff6b6b";
+          return <div key={cat.name} className="mb-1.5">
+            <div className="flex items-center justify-between mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{background: cat.color}} />
+                <span style={{fontSize: "10px", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.5px"}}>{cat.name}</span>
+                <span style={{fontSize: "9px", color: "#444"}}>({(cat.weight * 100).toFixed(0)}%)</span>
+              </div>
+              <span style={{fontSize: "13px", fontWeight: 800, color: scoreColor}}>{cat.score.toFixed(1)}</span>
+            </div>
+            <div style={{height: "4px", background: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden"}}>
+              <div style={{height: "100%", width: barWidth + "%", background: cat.color, borderRadius: "2px", transition: "width 0.5s", opacity: 0.8}} />
+            </div>
+          </div>;
+        })}
+      </div>
+
+      <div className="mx-3 mb-2 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)"}}>
+        {pir.categories.map(function(cat) {
+          return <div key={cat.name}>
+            <div className="px-2.5 py-1" style={{background: "rgba(255,255,255,0.03)", borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+              <span style={{fontSize: "8px", fontWeight: 700, color: cat.color, letterSpacing: "1.5px"}}>{cat.name.toUpperCase()}</span>
+            </div>
+            <div className="grid" style={{gridTemplateColumns: "repeat(" + cat.stats.length + ", 1fr)"}}>
+              {cat.stats.map(function(st) {
+                var rankColor = st.rank <= 3 ? "#e94560" : st.rank <= 8 ? "#52b788" : st.rank <= 16 ? "#a3be8c" : st.rank <= 24 ? "#ffd166" : "#888";
+                var displayVal = st.value;
+                var formatted;
+                if (st.key === "first_blood_percentage" || st.key === "ntk_pct" || st.key === "snd_odw_pct") {
+                  formatted = (displayVal * 100).toFixed(1) + "%";
+                } else if (displayVal >= 10) {
+                  formatted = displayVal.toFixed(1);
+                } else {
+                  formatted = displayVal.toFixed(2);
+                }
+                return <div key={st.key} className="text-center py-1.5 px-1" style={{borderRight: "1px solid rgba(255,255,255,0.03)"}}>
+                  <div style={{fontSize: "8px", color: "#555", letterSpacing: "0.3px"}}>{st.label}</div>
+                  <div style={{fontSize: "12px", fontWeight: 700, color: "#ccc", fontVariantNumeric: "tabular-nums"}}>{formatted}</div>
+                  <div style={{fontSize: "10px", fontWeight: 800, color: rankColor}}>#{st.rank}</div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })}
+      </div>
+
+      <div className="text-center pb-2.5 pt-0.5" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
+    </div>}
+
+    {player && pir && <div className="flex gap-2">
+      <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
+        {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+        <span>{sharing ? "Generating..." : "Share image"}</span>
+      </button>
+    </div>}
+
+    {!player && <div className="text-center py-8 opacity-30"><p className="text-sm">Search for a player to see their Player Impact Rating</p></div>}
   </div>;
 }
 
@@ -906,7 +1165,7 @@ function PlayerLeaderboard(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Search"];
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Spotlight", "Players", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
@@ -969,6 +1228,8 @@ export default function App() {
       </div>}
 
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
+
+      {tab === "Spotlight" && <div><h2 className="text-lg font-bold text-white mb-4">Player spotlight</h2><PlayerSpotlight analysis={analysis} /></div>}
 
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
 

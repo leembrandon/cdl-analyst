@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
@@ -440,6 +440,7 @@ function CompareRow(props) {
 
 function PlayerCompare(props) {
   var analysis = props.analysis;
+  var initialCompare = props.initialCompare;
   var [q1, setQ1] = useState("");
   var [q2, setQ2] = useState("");
   var [p1, setP1] = useState(null);
@@ -447,6 +448,82 @@ function PlayerCompare(props) {
   var [show1, setShow1] = useState(false);
   var [show2, setShow2] = useState(false);
   var [shareMode, setShareMode] = useState("full");
+  var [sharing, setSharing] = useState(false);
+  var [linkCopied, setLinkCopied] = useState(false);
+  var cardRef = useRef(null);
+
+  useEffect(function() {
+    if (!initialCompare || !analysis) return;
+    var parts = initialCompare.split(",");
+    if (parts.length !== 2) return;
+    var name1 = decodeURIComponent(parts[0]).toLowerCase().trim();
+    var name2 = decodeURIComponent(parts[1]).toLowerCase().trim();
+    var found1 = analysis.playerStats.find(function(p) { return p.player_tag && p.player_tag.toLowerCase() === name1; });
+    var found2 = analysis.playerStats.find(function(p) { return p.player_tag && p.player_tag.toLowerCase() === name2; });
+    if (found1) { setP1(found1); setQ1(found1.player_tag); }
+    if (found2) { setP2(found2); setQ2(found2.player_tag); }
+    if (found1 && found2) { setShareMode("compact"); }
+  }, [initialCompare, analysis]);
+
+  var updateUrl = function(player1, player2) {
+    if (player1 && player2) {
+      var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(player1.player_tag) + "," + encodeURIComponent(player2.player_tag);
+      window.history.replaceState(null, "", url);
+    } else {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  };
+
+  var search = function(q) {
+    if (q.length < 2) return [];
+    var lower = q.toLowerCase();
+    return analysis.playerStats.filter(function(p) {
+      return (p.player_tag && p.player_tag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
+    }).slice(0, 6);
+  };
+
+  var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
+  var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
+
+  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p, p2); };
+  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p1, p); };
+
+  var handleShareImage = function() {
+    if (!cardRef.current || sharing) return;
+    setSharing(true);
+    var script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.onload = function() {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
+        canvas.toBlob(function(blob) {
+          if (!blob) { setSharing(false); return; }
+          var file = new File([blob], "barracks-compare.png", {type: "image/png"});
+          if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+            navigator.share({files: [file], title: (p1 ? p1.player_tag : "") + " vs " + (p2 ? p2.player_tag : "") + " — Barracks CDL Stats"}).catch(function() {}).finally(function() { setSharing(false); });
+          } else {
+            var link = document.createElement("a");
+            link.download = "barracks-" + (p1 ? p1.player_tag : "p1") + "-vs-" + (p2 ? p2.player_tag : "p2") + ".png";
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            setSharing(false);
+          }
+        }, "image/png");
+      }).catch(function() { setSharing(false); });
+    };
+    script.onerror = function() { setSharing(false); };
+    document.head.appendChild(script);
+  };
+
+  var handleCopyLink = function() {
+    if (!p1 || !p2) return;
+    var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(p1.player_tag) + "," + encodeURIComponent(p2.player_tag);
+    navigator.clipboard.writeText(url).then(function() {
+      setLinkCopied(true);
+      setTimeout(function() { setLinkCopied(false); }, 2000);
+    }).catch(function() {
+      prompt("Copy this link:", url);
+    });
+  };
 
   var search = function(q) {
     if (q.length < 2) return [];
@@ -531,7 +608,7 @@ function PlayerCompare(props) {
           return <button key={m} onClick={function() { setShareMode(m); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: shareMode === m ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: shareMode === m ? "#e94560" : "#666"}}>{m === "full" ? "Full breakdown" : "Share card"}</button>;
         })}
       </div>
-      <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
+      <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); updateUrl(null, null); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
     </div>}
 
     {/* ===== SHARE CARD MODE — ultra-compact, fits one phone screen ===== */}
@@ -566,7 +643,7 @@ function PlayerCompare(props) {
           {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
         ]}
       ];
-      return <div id="compare-share-card" className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
+      return <div id="compare-share-card" ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
         {/* Branding header — single tight line */}
         <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
           <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
@@ -638,6 +715,18 @@ function PlayerCompare(props) {
         <div className="text-center pb-2" style={{opacity: 0.25}}><span style={{fontSize: "8px", letterSpacing: "1.5px"}}>BARRACKS · CDL STATS</span></div>
       </div>;
     }()}
+
+    {/* Share action buttons — only in compact mode */}
+    {p1 && p2 && shareMode === "compact" && <div className="flex gap-2 mt-3">
+      <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
+        {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+        <span>{sharing ? "Generating..." : "Share image"}</span>
+      </button>
+      <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0", transition: "all 0.2s"}}>
+        {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+        <span>{linkCopied ? "Copied!" : "Copy link"}</span>
+      </button>
+    </div>}
 
     {/* ===== FULL BREAKDOWN MODE — original detailed view ===== */}
     {p1 && p2 && shareMode === "full" && <div>
@@ -821,7 +910,9 @@ function PlayerLeaderboard(props) {
 var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Search"];
 
 export default function App() {
-  var [tab, setTab] = useState("Schedule");
+  var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
+  var compareParam = urlParams.get("compare");
+  var [tab, setTab] = useState(compareParam ? "Compare" : "Schedule");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
@@ -878,7 +969,7 @@ export default function App() {
         </div>}
       </div>}
 
-      {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} /></div>}
+      {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
 
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
 

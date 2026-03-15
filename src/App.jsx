@@ -644,13 +644,13 @@ function PlayerCompare(props) {
         {/* Player names + K/D hero — tight */}
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
-            <div style={{textAlign: "center"}}>
-              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.2}}>{p1.player_tag} <span style={{fontSize: "9px", padding: "1px 4px", borderRadius: "3px", background: "rgba(255,255,255,0.08)", color: p1.role === "AR" ? "#53a8b6" : p1.role === "SMG" ? "#e94560" : "#ffd166", verticalAlign: "middle"}}>{p1.role}</span></div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
             </div>
-            <div style={{textAlign: "center"}}><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
-            <div style={{textAlign: "center"}}>
-              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.2}}>{p2.player_tag} <span style={{fontSize: "9px", padding: "1px 4px", borderRadius: "3px", background: "rgba(255,255,255,0.08)", color: p2.role === "AR" ? "#53a8b6" : p2.role === "SMG" ? "#e94560" : "#ffd166", verticalAlign: "middle"}}>{p2.role}</span></div>
+            <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>

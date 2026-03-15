@@ -158,7 +158,7 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{display: "inline-flex", alignItems: "center", background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", lineHeight: 1, padding: "3px 6px", borderRadius: "4px", marginLeft: "6px"}}>{role}</span>;
+  return <span style={{display: "inline-block", background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", lineHeight: "16px", height: "16px", padding: "0 6px", borderRadius: "4px", marginLeft: "6px", verticalAlign: "middle"}}>{role}</span>;
 }
 
 function H2HRow(props) {
@@ -661,7 +661,7 @@ function PlayerCompare(props) {
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><span style={{fontSize: "10px", fontWeight: 700, color: {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"}[p2.role] || "#888"}}>{p2.role}</span></div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>

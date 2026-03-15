@@ -646,12 +646,12 @@ function PlayerCompare(props) {
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
               <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_short}</div>
+              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
               <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_short}</div>
+              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>
           {/* K/D hero numbers */}

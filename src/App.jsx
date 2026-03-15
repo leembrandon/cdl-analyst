@@ -157,30 +157,8 @@ function KdBadge(props) {
 function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
-  var c = { AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166" };
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "18px",
-        padding: "0 6px",
-        borderRadius: "6px",
-        background: "rgba(255,255,255,0.08)",
-        color: c[role] || "#888",
-        fontSize: "10px",
-        lineHeight: 1,
-        fontWeight: 600,
-        marginLeft: "6px",
-        position: "relative",
-        top: "4px"
-      }}
-    >
-      {role}
-    </span>
-  );
+  var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
+  return <span className="text-xs px-1.5 py-0.5 rounded ml-1.5" style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px"}}>{role}</span>;
 }
 
 function H2HRow(props) {

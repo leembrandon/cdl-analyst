@@ -656,13 +656,13 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span></div>
+              <div className="flex items-center justify-center gap-1" style={{marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p1.team_name}</span><RoleBadge role={p1.role} /></div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
-              <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span></div>
+              <div className="flex items-center justify-center gap-1" style={{marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p2.team_name}</span><RoleBadge role={p2.role} /></div>
             </div>
           </div>
           {/* K/D hero numbers */}
@@ -734,14 +734,14 @@ function PlayerCompare(props) {
     {p1 && p2 && shareMode === "full" && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
-          <div className="text-xs opacity-40">{p1.team_name}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p1.team_name}</span><RoleBadge role={p1.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
-          <div className="text-xs opacity-40">{p2.team_name}</div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p2.team_name}</span><RoleBadge role={p2.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>

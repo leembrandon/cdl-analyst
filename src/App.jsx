@@ -157,7 +157,6 @@ function KdBadge(props) {
 function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
-
   var c = { AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166" };
 
   return (
@@ -168,13 +167,15 @@ function RoleBadge(props) {
         justifyContent: "center",
         height: "18px",
         padding: "0 6px",
-        marginLeft: "6px",
         borderRadius: "6px",
         background: "rgba(255,255,255,0.08)",
         color: c[role] || "#888",
         fontSize: "10px",
         lineHeight: 1,
-        fontWeight: 600
+        fontWeight: 600,
+        marginLeft: "6px",
+        position: "relative",
+        top: "1px"
       }}
     >
       {role}

@@ -103,33 +103,13 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     var hpW = s(ts, "hp_map_win_percentage"), sndW = s(ts, "snd_map_win_percentage"), ovlW = s(ts, "ovl_map_win_percentage");
     var avgWin = (hpW + sndW + ovlW) / 3;
     var rs = rosterStats(tid);
-    var avgBp = rs.length ? rs.reduce(function(a, p) { return a + s(p, "bp_rating"); }, 0) / rs.length : 0;
     var star = rs.reduce(function(b, p) { return s(p, "kd") > s(b, "kd") ? p : b; }, rs[0] || {});
-    var score = (kd * 25) + (avgWin * 0.3) + (avgBp * 15) + (s(ts, "hp_average_differential") * 0.08) + (s(ts, "snd_average_differential") * 1.5) + (s(ts, "ovl_average_differential") * 0.5);
+    var score = (kd * 25) + (avgWin * 0.3) + (s(ts, "hp_average_differential") * 0.08) + (s(ts, "snd_average_differential") * 1.5) + (s(ts, "ovl_average_differential") * 0.5);
     var st = standingsLookup[tid] || {};
-    return {tid: tid, name: ts.team_name, short: ts.team_short, color: ts.team_color, score: score, kd: kd, avgWin: avgWin, hpW: hpW, sndW: sndW, ovlW: ovlW, avgBp: avgBp, star: (star && star.player_tag) || "", starKd: s(star, "kd"), matchWins: st.match_wins || 0, matchLosses: st.match_losses || 0, points: st.points || 0, standingRank: st.rank || 99};
+    return {tid: tid, name: ts.team_name, short: ts.team_short, color: ts.team_color, score: score, kd: kd, avgWin: avgWin, hpW: hpW, sndW: sndW, ovlW: ovlW, star: (star && star.player_tag) || "", starKd: s(star, "kd"), matchWins: st.match_wins || 0, matchLosses: st.match_losses || 0, points: st.points || 0, standingRank: st.rank || 99};
   }).sort(function(a, b) { return b.score - a.score; });
   var powerLookup = {};
   power.forEach(function(p) { powerLookup[p.tid] = p; });
-
-  var teamMapCounts = {};
-  Object.keys(teamStats).forEach(function(tid) {
-    var rs = rosterStats(Number(tid));
-    if (!rs.length) { teamMapCounts[tid] = {hp: 1, snd: 1, ovl: 1}; return; }
-    teamMapCounts[tid] = {
-      hp: Math.max(1, Math.round(rs.reduce(function(a, p) { return a + s(p, "hp_game_count"); }, 0) / rs.length)),
-      snd: Math.max(1, Math.round(rs.reduce(function(a, p) { return a + s(p, "snd_game_count"); }, 0) / rs.length)),
-      ovl: Math.max(1, Math.round(rs.reduce(function(a, p) { return a + s(p, "ovl_game_count"); }, 0) / rs.length))
-    };
-  });
-  var perMapRate = function(tid, f, m) { return s(teamStats[tid], f) / ((teamMapCounts[tid] && teamMapCounts[tid][m]) || 1); };
-  var tids = Object.keys(teamStats).map(Number);
-  var lgAvg = function(f, m) { var r = tids.map(function(t) { return perMapRate(t, f, m); }); return r.reduce(function(a, b) { return a + b; }, 0) / r.length || 1; };
-  var lgHpDpm = lgAvg("hp_deaths", "hp"), lgSndDpm = lgAvg("snd_deaths", "snd"), lgOvlDpm = lgAvg("ovl_deaths", "ovl");
-  var lgHpKpm = lgAvg("hp_kills", "hp"), lgSndKpm = lgAvg("snd_kills", "snd"), lgOvlKpm = lgAvg("ovl_kills", "ovl");
-  var clamp = function(v) { return Math.min(1.15, Math.max(0.85, v)); };
-  var oppKF = function(o, m) { var f = {hp: "hp_deaths", snd: "snd_deaths", ovl: "ovl_deaths"}[m]; var l = {hp: lgHpDpm, snd: lgSndDpm, ovl: lgOvlDpm}[m]; return clamp(l > 0 ? perMapRate(o, f, m) / l : 1); };
-  var oppDF = function(o, m) { var f = {hp: "hp_kills", snd: "snd_kills", ovl: "ovl_kills"}[m]; var l = {hp: lgHpKpm, snd: lgSndKpm, ovl: lgOvlKpm}[m]; return clamp(l > 0 ? perMapRate(o, f, m) / l : 1); };
 
   var allPs = Object.values(playerStats).filter(function(p) { return p.team_id; });
   var topKd = allPs.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 5);
@@ -148,29 +128,7 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     var edge = Math.abs((p1.score || 0) - (p2.score || 0));
     var favored = (p1.score || 0) >= (p2.score || 0) ? (m.team1 && m.team1.name_short) : (m.team2 && m.team2.name_short);
 
-    var projections = [];
-    [[m.team_1_id, m.team1, m.team_2_id], [m.team_2_id, m.team2, m.team_1_id]].forEach(function(arr) {
-      var tid = arr[0], tI = arr[1], oT = arr[2];
-      var rs = rosterStats(tid);
-      var hKf = oppKF(oT, "hp"), hDf = oppDF(oT, "hp"), sKf = oppKF(oT, "snd"), sDf = oppDF(oT, "snd"), oKf = oppKF(oT, "ovl"), oDf = oppDF(oT, "ovl");
-      var sR = s(teamStats[tid], "snd_rounds") || 10;
-      rs.forEach(function(p) {
-        var hM = s(p, "hp_game_count") > 0 ? s(p, "hp_gametime") / s(p, "hp_game_count") : 10;
-        var oM = s(p, "ovl_game_count") > 0 ? s(p, "ovl_gametime") / s(p, "ovl_game_count") : 10;
-        var hK = +(s(p, "hp_k_10m") * (hM / 10) * hKf).toFixed(1);
-        var hD = +(s(p, "hp_d_10m") * (hM / 10) * hDf).toFixed(1);
-        var sK = +(s(p, "snd_kpr") * sR * sKf).toFixed(1);
-        var sD = +(s(p, "snd_dpr") * sR * sDf).toFixed(1);
-        var oK = +(s(p, "ovl_k_10m") * (oM / 10) * oKf).toFixed(1);
-        var oD = +(s(p, "ovl_d_10m") * (oM / 10) * oDf).toFixed(1);
-        var tK = +(hK + sK + oK).toFixed(1);
-        var tD = +(hD + sD + oD).toFixed(1);
-        var kd = tD > 0 ? +(tK / tD).toFixed(2) : 0;
-        projections.push({team: (tI && tI.name_short) || "?", tag: p.player_tag, hpK: hK, hpD: hD, sndK: sK, sndD: sD, ovlK: oK, ovlD: oD, totalK: tK, totalD: tD, seriesKd: kd, killAdj: +((hKf + sKf + oKf) / 3).toFixed(2), deathAdj: +((hDf + sDf + oDf) / 3).toFixed(2)});
-      });
-    });
-
-    matchups.push({id: m.id, datetime: m.datetime, bestOf: m.best_of, t1: m.team1, t2: m.team2, event: m.events, round: m.round, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.team_1_id), t2Roster: rosterStats(m.team_2_id), p1: p1, p2: p2, edge: edge, favored: favored, projections: projections});
+    matchups.push({id: m.id, datetime: m.datetime, bestOf: m.best_of, t1: m.team1, t2: m.team2, event: m.events, round: m.round, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.team_1_id), t2Roster: rosterStats(m.team_2_id), p1: p1, p2: p2, edge: edge, favored: favored});
   });
 
   return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
@@ -254,11 +212,10 @@ function PowerRankings(props) {
         <div className="w-3 h-8 rounded-sm flex-shrink-0" style={{background: t.color}} />
         <div className="flex-1 min-w-0"><div className="font-bold text-white truncate">{t.name}</div><div className="text-xs opacity-50">{t.matchWins}-{t.matchLosses} · Star: {t.star} ({t.starKd.toFixed(2)})</div></div>
       </div>
-      <div className="grid grid-cols-4 gap-2 pl-12">
+      <div className="grid grid-cols-3 gap-2 pl-12">
         <Stat label="Power" value={t.score} fmt="0.0" color={i < 4 ? "#52b788" : "#c8c8d0"} />
         <Stat label="K/D" value={t.kd} />
         <Stat label="Win%" value={t.avgWin} fmt="pct" />
-        <Stat label="BP Rtg" value={t.avgBp} />
       </div>
     </div>;
   })}</div>;

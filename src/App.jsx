@@ -175,7 +175,7 @@ function RoleBadge(props) {
         fontWeight: 600,
         marginLeft: "6px",
         position: "relative",
-        top: "1px"
+        top: "4px"
       }}
     >
       {role}

@@ -828,37 +828,19 @@ function PlayerSpotlight(props) {
     var roster = analysis.rosterStats(player.team_id);
     if (!roster || roster.length === 0) return null;
 
-    var totalKills = 0, totalDeaths = 0, totalDmg = 0;
+    var totalKills = 0, totalDmg = 0;
     var playerKills = 0, playerDmg = 0;
 
     roster.forEach(function(p) {
-      var k = s(p, "total_kills");
-      var d = s(p, "total_deaths");
-      var dmg = s(p, "total_damage");
+      var k = s(p, "kills");
+      var dmg = s(p, "dmg");
       totalKills += k;
-      totalDeaths += d;
       totalDmg += dmg;
       if (p.player_id === player.player_id) {
         playerKills = k;
         playerDmg = dmg;
       }
     });
-
-    // If totals aren't available, estimate from per-minute/per-10 stats
-    if (totalKills === 0) {
-      var matches = s(player, "matches_played") || 1;
-      roster.forEach(function(p) {
-        var m = s(p, "matches_played") || 1;
-        var kEst = s(p, "kd") * s(p, "total_deaths") || s(p, "hp_k_10m") * m * 2.5;
-        var dEst = s(p, "dmg_per_min") * m * 10;
-        totalKills += kEst;
-        totalDmg += dEst;
-        if (p.player_id === player.player_id) {
-          playerKills = kEst;
-          playerDmg = dEst;
-        }
-      });
-    }
 
     var teamAvgKd = roster.reduce(function(sum, p) { return sum + s(p, "kd"); }, 0) / roster.length;
     var killPct = totalKills > 0 ? (playerKills / totalKills * 100) : 0;

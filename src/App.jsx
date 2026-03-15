@@ -156,7 +156,7 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span className="text-xs px-1.5 py-0.5 rounded ml-1.5" style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px"}}>{role}</span>;
+  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", paddingLeft: "6px", paddingRight: "6px", paddingTop: "2px", paddingBottom: "2px", borderRadius: "4px", marginLeft: "6px", lineHeight: "normal", display: "inline-block", verticalAlign: "middle"}}>{role}</span>;
 }
 
 function H2HRow(props) {
@@ -486,20 +486,7 @@ function PlayerCompare(props) {
     var script = document.createElement("script");
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
     script.onload = function() {
-      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true, onclone: function(clonedDoc) {
-        var card = clonedDoc.getElementById("compare-share-card");
-        if (!card) return;
-        var badges = card.querySelectorAll("span.text-xs.rounded");
-        badges.forEach(function(badge) {
-          var computed = window.getComputedStyle(badge);
-          badge.style.display = "inline";
-          badge.style.fontSize = "9px";
-          badge.style.padding = "1px 4px";
-          badge.style.lineHeight = "1";
-          badge.style.verticalAlign = "middle";
-          badge.style.marginLeft = "4px";
-        });
-      }}).then(function(canvas) {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
         canvas.toBlob(function(blob) {
           if (!blob) { setSharing(false); return; }
           var file = new File([blob], "barracks-compare.png", {type: "image/png"});

@@ -159,6 +159,13 @@ function RoleBadge(props) {
   return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", paddingLeft: "6px", paddingRight: "6px", paddingTop: "2px", paddingBottom: "2px", borderRadius: "4px", marginLeft: "6px", lineHeight: "normal", display: "inline-block", verticalAlign: "middle"}}>{role}</span>;
 }
 
+function ShareRoleBadge(props) {
+  var role = props.role;
+  if (!role) return null;
+  var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
+  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "9px", fontWeight: 600, padding: "1px 5px", borderRadius: "3px", marginLeft: "5px", display: "inline-block", verticalAlign: "middle", lineHeight: "16px", height: "16px", textAlign: "center"}}>{role}</span>;
+}
+
 function H2HRow(props) {
   var label = props.label, v1 = props.v1, v2 = props.v2, fmt = props.fmt || "0.00", higherBetter = props.higherBetter !== false;
   var f = function(v) { return fmt === "pct" ? v.toFixed(1) + "%" : fmt === "0.0" ? v.toFixed(1) : v.toFixed(2); };
@@ -645,12 +652,12 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
+              <div style={{textAlign: "center", lineHeight: "20px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", verticalAlign: "middle"}}>{p1.player_tag}</span><ShareRoleBadge role={p1.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
+              <div style={{textAlign: "center", lineHeight: "20px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", verticalAlign: "middle"}}>{p2.player_tag}</span><ShareRoleBadge role={p2.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>

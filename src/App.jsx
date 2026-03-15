@@ -158,7 +158,10 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", display: "inline-block", height: "16px", lineHeight: "16px", paddingLeft: "6px", paddingRight: "6px", borderRadius: "3px", marginLeft: "6px", verticalAlign: "middle", textAlign: "center"}}>{role}</span>;
+  return <div style={{display: "inline-block", position: "relative", marginLeft: "6px", verticalAlign: "middle"}}>
+    <div style={{position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.08)", borderRadius: "3px"}} />
+    <div style={{position: "relative", color: c[role] || "#888", fontSize: "10px", lineHeight: "16px", paddingLeft: "6px", paddingRight: "6px", textAlign: "center"}}>{role}</div>
+  </div>;
 }
 
 function H2HRow(props) {

@@ -534,85 +534,110 @@ function PlayerCompare(props) {
       <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
     </div>}
 
-    {/* ===== SHARE CARD MODE — compact, screenshot-optimized ===== */}
-    {p1 && p2 && shareMode === "compact" && <div id="compare-share-card" className="rounded-2xl overflow-hidden" style={{background: "linear-gradient(180deg, #111128 0%, #0d0d1a 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 4px 24px rgba(0,0,0,0.4)"}}>
-      {/* Header banner with branding */}
-      <div className="px-4 pt-3 pb-2" style={{background: "linear-gradient(135deg, rgba(233,69,96,0.12) 0%, rgba(83,168,182,0.08) 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-black tracking-widest" style={{color: "#e94560"}}>BARRACKS</span>
-          <span style={{fontSize: "9px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026 STATS</span>
+    {/* ===== SHARE CARD MODE — ultra-compact, fits one phone screen ===== */}
+    {p1 && p2 && shareMode === "compact" && function() {
+      var sc = function(v1, v2, lower) {
+        if (lower) return v1 < v2 ? "#52b788" : v1 > v2 ? "#666" : "#ffd166";
+        return v1 > v2 ? "#52b788" : v1 < v2 ? "#666" : "#ffd166";
+      };
+      var fv = function(v, fmt) { return fmt === "pct" ? v.toFixed(1) + "%" : fmt === "1" ? v.toFixed(1) : v.toFixed(2); };
+      var StatCell = function(props) {
+        return <div className="text-center" style={{padding: "3px 0"}}>
+          <div style={{fontSize: "12px", fontWeight: 700, color: props.color, fontVariantNumeric: "tabular-nums"}}>{props.val}</div>
+        </div>;
+      };
+      var shareStats = [
+        {section: "OVERALL", rows: [
+          {label: "K/D", v1: s(p1,"kd"), v2: s(p2,"kd"), fmt: "2"},
+          {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"},
+          {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
+        ]},
+        {section: "HARDPOINT", rows: [
+          {label: "K/D", v1: s(p1,"hp_kd"), v2: s(p2,"hp_kd"), fmt: "2"},
+          {label: "K/10", v1: s(p1,"hp_k_10m"), v2: s(p2,"hp_k_10m"), fmt: "1"},
+          {label: "ENG/10", v1: s(p1,"hp_eng_10m"), v2: s(p2,"hp_eng_10m"), fmt: "1"}
+        ]},
+        {section: "S&D", rows: [
+          {label: "K/D", v1: s(p1,"snd_kd"), v2: s(p2,"snd_kd"), fmt: "2"},
+          {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"}
+        ]},
+        {section: "OVERLOAD", rows: [
+          {label: "K/D", v1: s(p1,"ovl_kd"), v2: s(p2,"ovl_kd"), fmt: "2"},
+          {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
+        ]}
+      ];
+      return <div id="compare-share-card" className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
+        {/* Branding header — single tight line */}
+        <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
+          <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
+          <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026</span>
         </div>
-      </div>
 
-      {/* Player matchup header */}
-      <div className="px-4 pt-3 pb-2">
-        <div className="grid grid-cols-2 gap-3 items-center">
-          <div className="text-center">
-            <div className="text-base font-black text-white" style={{lineHeight: 1.2}}>{p1.player_tag}</div>
-            <div className="flex items-center justify-center gap-1 mt-0.5"><span style={{fontSize: "10px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
+        {/* Player names + K/D hero — tight */}
+        <div className="px-3 pt-2.5 pb-1">
+          <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
+            <div className="text-center">
+              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "9px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
+            </div>
+            <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
+            <div className="text-center">
+              <div style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "9px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
+            </div>
           </div>
-          <div className="text-center">
-            <div className="text-base font-black text-white" style={{lineHeight: 1.2}}>{p2.player_tag}</div>
-            <div className="flex items-center justify-center gap-1 mt-0.5"><span style={{fontSize: "10px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
+          {/* K/D hero numbers */}
+          <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center", marginTop: "4px"}}>
+            <div className="text-center">
+              <div style={{fontSize: "26px", fontWeight: 900, color: kdColor(s(p1,"kd")), lineHeight: 1}}>{s(p1,"kd").toFixed(2)}</div>
+            </div>
+            <div className="text-center"><span style={{fontSize: "7px", color: "#444", letterSpacing: "0.5px"}}>K/D</span></div>
+            <div className="text-center">
+              <div style={{fontSize: "26px", fontWeight: 900, color: kdColor(s(p2,"kd")), lineHeight: 1}}>{s(p2,"kd").toFixed(2)}</div>
+            </div>
           </div>
         </div>
 
-        {/* Big K/D face-off */}
-        <div className="grid grid-cols-2 gap-3 mt-2">
-          <div className="text-center py-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
-            <div className="text-2xl font-black" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
-            <div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>OVERALL K/D</div>
+        {/* Stat table — dense 3-col grid: P1 val | stat label | P2 val */}
+        <div className="px-3 pb-1">
+          {shareStats.map(function(group) {
+            return <div key={group.section}>
+              <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "5px 0 1px"}}>{group.section}</div>
+              {group.rows.map(function(row) {
+                var f = row.fmt === "1" ? row.v1.toFixed(1) : row.v1.toFixed(2);
+                var f2 = row.fmt === "1" ? row.v2.toFixed(1) : row.v2.toFixed(2);
+                var c1 = sc(row.v1, row.v2, row.lower);
+                var c2 = sc(row.v2, row.v1, row.lower);
+                return <div key={row.label} style={{display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.025)"}}>
+                  <div style={{textAlign: "right", paddingRight: "8px"}}><span style={{fontSize: "12px", fontWeight: 700, color: c1, fontVariantNumeric: "tabular-nums"}}>{f}</span></div>
+                  <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.3px", minWidth: "40px", textAlign: "center"}}>{row.label}</div>
+                  <div style={{textAlign: "left", paddingLeft: "8px"}}><span style={{fontSize: "12px", fontWeight: 700, color: c2, fontVariantNumeric: "tabular-nums"}}>{f2}</span></div>
+                </div>;
+              })}
+            </div>;
+          })}
+        </div>
+
+        {/* Verdict — tight bar + result */}
+        <div className="mx-3 mb-2.5 mt-1 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
+          <div className="flex" style={{height: "3px"}}>
+            <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}} />
+            <div style={{width: (totalCats > 0 ? ((totalCats - p1Wins - p2Wins) / totalCats * 100) : 0) + "%", background: "#ffd166"}} />
+            <div style={{width: (totalCats > 0 ? (p2Wins / totalCats * 100) : 50) + "%", background: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}} />
           </div>
-          <div className="text-center py-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
-            <div className="text-2xl font-black" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
-            <div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>OVERALL K/D</div>
+          <div style={{display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", padding: "6px 10px"}}>
+            <div className="text-left"><span style={{fontSize: "18px", fontWeight: 900, color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</span><span style={{fontSize: "9px", color: "#555", marginLeft: "3px"}}>wins</span></div>
+            <div className="text-center">
+              {winner ? <div><div style={{fontSize: "7px", color: "#555", letterSpacing: "1px"}}>VERDICT</div><div style={{fontSize: "11px", fontWeight: 900, color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
+            </div>
+            <div className="text-right"><span style={{fontSize: "9px", color: "#555", marginRight: "3px"}}>wins</span><span style={{fontSize: "18px", fontWeight: 900, color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</span></div>
           </div>
         </div>
-      </div>
 
-      {/* Condensed stat rows — key stats only for share view */}
-      <div style={{padding: "0 12px"}}>
-        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>OVERALL</div>
-        <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
-        <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
-        <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
-
-        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>HARDPOINT</div>
-        <CompareRow label="K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
-        <CompareRow label="K/10" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
-        <CompareRow label="ENG/10" v1={s(p1, "hp_eng_10m")} v2={s(p2, "hp_eng_10m")} fmt="0.0" />
-
-        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>SEARCH & DESTROY</div>
-        <CompareRow label="K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
-        <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
-
-        <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "6px 0 2px", letterSpacing: "1px"}}>OVERLOAD</div>
-        <CompareRow label="K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
-        <CompareRow label="K/10" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
-      </div>
-
-      {/* Verdict bar */}
-      <div className="mx-3 mt-3 mb-3 rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-        {/* Win bar visual */}
-        <div className="flex" style={{height: "4px"}}>
-          <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
-          <div style={{width: (totalCats > 0 ? ((totalCats - p1Wins - p2Wins) / totalCats * 100) : 0) + "%", background: "#ffd166"}} />
-          <div style={{width: (totalCats > 0 ? (p2Wins / totalCats * 100) : 50) + "%", background: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
-        </div>
-        <div className="grid grid-cols-3 items-center py-2.5 px-3">
-          <div className="text-left"><span className="text-lg font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</span><span style={{fontSize: "10px", color: "#555", marginLeft: "4px"}}>wins</span></div>
-          <div className="text-center">
-            {winner ? <div><div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>VERDICT</div><div className="text-xs font-black" style={{color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
-          </div>
-          <div className="text-right"><span style={{fontSize: "10px", color: "#555", marginRight: "4px"}}>wins</span><span className="text-lg font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</span></div>
-        </div>
-      </div>
-
-      {/* Footer branding */}
-      <div className="flex items-center justify-center gap-2 pb-2.5" style={{opacity: 0.3}}>
-        <span style={{fontSize: "9px", letterSpacing: "1px"}}>BARRACKS CDL STATS</span>
-      </div>
-    </div>}
+        {/* Footer */}
+        <div className="text-center pb-2" style={{opacity: 0.25}}><span style={{fontSize: "8px", letterSpacing: "1.5px"}}>BARRACKS · CDL STATS</span></div>
+      </div>;
+    }()}
 
     {/* ===== FULL BREAKDOWN MODE — original detailed view ===== */}
     {p1 && p2 && shareMode === "full" && <div>

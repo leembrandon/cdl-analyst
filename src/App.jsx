@@ -158,7 +158,7 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{display: "inline-block", background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", lineHeight: "16px", height: "16px", padding: "0 6px", borderRadius: "4px", marginLeft: "6px", verticalAlign: "middle"}}>{role}</span>;
+  return <span className="text-xs rounded ml-1.5" style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "2px 6px", lineHeight: 1, verticalAlign: "middle"}}>{role}</span>;
 }
 
 function H2HRow(props) {
@@ -519,20 +519,6 @@ function PlayerCompare(props) {
     });
   };
 
-  var search = function(q) {
-    if (q.length < 2) return [];
-    var lower = q.toLowerCase();
-    return analysis.playerStats.filter(function(p) {
-      return (p.player_tag && p.player_tag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
-    }).slice(0, 6);
-  };
-
-  var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
-  var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
-
-  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); if (document.activeElement) document.activeElement.blur(); };
-  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); };
-
   var stats = [
     {label: "K/D", k: "kd"},
     {label: "DMG/min", k: "dmg_per_min", fmt: "0.0"},
@@ -656,12 +642,12 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
+              <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: "4px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
+              <div style={{display: "flex", alignItems: "center", justifyContent: "center", gap: "4px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>

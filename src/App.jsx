@@ -486,7 +486,20 @@ function PlayerCompare(props) {
     var script = document.createElement("script");
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
     script.onload = function() {
-      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true, onclone: function(clonedDoc) {
+        var card = clonedDoc.getElementById("compare-share-card");
+        if (!card) return;
+        var badges = card.querySelectorAll("span.text-xs.rounded");
+        badges.forEach(function(badge) {
+          var computed = window.getComputedStyle(badge);
+          badge.style.display = "inline";
+          badge.style.fontSize = "9px";
+          badge.style.padding = "1px 4px";
+          badge.style.lineHeight = "1";
+          badge.style.verticalAlign = "middle";
+          badge.style.marginLeft = "4px";
+        });
+      }}).then(function(canvas) {
         canvas.toBlob(function(blob) {
           if (!blob) { setSharing(false); return; }
           var file = new File([blob], "barracks-compare.png", {type: "image/png"});

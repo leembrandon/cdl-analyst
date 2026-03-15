@@ -486,7 +486,7 @@ function PlayerCompare(props) {
     var script = document.createElement("script");
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
     script.onload = function() {
-      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
+      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true, windowWidth: cardRef.current.scrollWidth, width: cardRef.current.scrollWidth, height: cardRef.current.scrollHeight}).then(function(canvas) {
         canvas.toBlob(function(blob) {
           if (!blob) { setSharing(false); return; }
           var file = new File([blob], "barracks-compare.png", {type: "image/png"});

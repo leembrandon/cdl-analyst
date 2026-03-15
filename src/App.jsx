@@ -3,57 +3,61 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
 const CURRENT_EVENT_ID = 102;
-const SUPABASE_API = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1";
-const SUPABASE_BASE = SUPABASE_API + "/standings";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmcGlpdWZ4Y2NpdWp1Z3pqdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2ODk0MDMsImV4cCI6MjA2MDI2NTQwM30.36VuOTvrxtmR3nb-u3nnVYWzMBn9YP1bQFvUYF5T1OE";
+
+// Your Supabase (data synced by Python script)
+const MY_SUPABASE_API = "https://xtxlopuvadwwuzvytqgo.supabase.co/rest/v1";
+const MY_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0eGxvcHV2YWR3d3V6dnl0cWdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1OTk2MjEsImV4cCI6MjA4OTE3NTYyMX0.MP8SGkba0Ye-d-RSRgEmfE6A4KmFTH5fG9S9aJoSnRI";
+
+// Standings Supabase (existing, external)
+const STANDINGS_SUPABASE_API = "https://dfpiiufxcciujugzjvgx.supabase.co/rest/v1";
+const STANDINGS_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmcGlpdWZ4Y2NpdWp1Z3pqdmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2ODk0MDMsImV4cCI6MjA2MDI2NTQwM30.36VuOTvrxtmR3nb-u3nnVYWzMBn9YP1bQFvUYF5T1OE";
 const STANDINGS_FIELDS = "select=*,team_logo_darkmode:team_id(logo_darkmode),team_logo_lightmode:team_id(logo_lightmode),team_name:team_id(name),team_name_short:team_id(name_short),event_name:event_id(name)";
 
-async function proxyFetch(url) {
-  const res = await fetch("/api/proxy?url=" + encodeURIComponent(url));
-  if (!res.ok) throw new Error("Fetch failed (" + res.status + ")");
+async function mySupaFetch(table, query) {
+  var url = MY_SUPABASE_API + "/" + table + "?" + (query || "select=*");
+  var res = await fetch(url, {headers: {"apikey": MY_SUPABASE_KEY, "Authorization": "Bearer " + MY_SUPABASE_KEY}});
+  if (!res.ok) throw new Error("Supabase fetch failed (" + res.status + ")");
   return res.json();
 }
+
 async function fetchPlayers() {
-  var p = {"0":{"json":{"eventType":[],"mapId":ALL_MAP_IDS,"modeId":[1,2,3,4,5],"eventId":[],"teamId":[],"onlyCDLStats":true,"onlyChallengersStats":false,"seasonId":2026,"startAt":null,"endAt":null,"aggregateMatchStats":true},"meta":{"values":{"startAt":["undefined"],"endAt":["undefined"]}}}};
-  var d = await proxyFetch("https://www.breakingpoint.gg/api/trpc/playerStats.getAggregatedOrderedPlayerStats?batch=1&input=" + encodeURIComponent(JSON.stringify(p)));
-  return (d && d[0] && d[0].result && d[0].result.data && d[0].result.data.json) || [];
+  return mySupaFetch("player_stats", "select=*");
 }
 async function fetchTeams() {
-  var p = {"0":{"json":{"eventType":[],"mapId":ALL_MAP_IDS,"modeId":[1,2,3,4,5],"eventId":[],"teamId":[],"onlyCDLStats":true,"onlyChallengersStats":false,"seasonId":2026,"startAt":null,"endAt":null},"meta":{"values":{"startAt":["undefined"],"endAt":["undefined"]}}}};
-  var d = await proxyFetch("https://www.breakingpoint.gg/api/trpc/teamStats.getAggregatedOrderedTeamStats?batch=1&input=" + encodeURIComponent(JSON.stringify(p)));
-  return (d && d[0] && d[0].result && d[0].result.data && d[0].result.data.json) || [];
+  return mySupaFetch("team_stats", "select=*");
 }
 async function fetchMatches() {
-  var p = {"0":{"json":{"seeOnlyCDL":true}},"1":{"json":{"seeOnlyCDL":true}}};
-  var d = await proxyFetch("https://www.breakingpoint.gg/api/trpc/matches.fetchLiveMatches,matches.fetchUpcomingMatches?batch=1&input=" + encodeURIComponent(JSON.stringify(p)));
-  var live = (d && d[0] && d[0].result && d[0].result.data && d[0].result.data.json) || [];
-  var upcoming = (d && d[1] && d[1].result && d[1].result.data && d[1].result.data.json) || [];
-  return live.concat(upcoming);
+  return mySupaFetch("matches", "select=*&order=datetime.asc");
 }
 async function fetchRosters() {
-  // Try current known build ID first, then auto-detect if it fails
-  var buildIds = ["vk2QalvbuKsOkyHt-qh5C"];
-  for (var i = 0; i < buildIds.length; i++) {
-    try {
-      var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + buildIds[i] + "/en/cdl/teams-and-players.json");
-      if (d && d.pageProps && d.pageProps.teams && d.pageProps.teams.length > 0) return d.pageProps.teams;
-    } catch(e) { console.warn("Build ID " + buildIds[i] + " failed:", e); }
-  }
-  // Auto-detect: fetch the main page source to find the buildId
-  try {
-    var res = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg"));
-    var text = await res.text();
-    var match = text.match(/_next\/data\/([^/]+)\//);
-    if (match && match[1]) {
-      var d2 = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + match[1] + "/en/cdl/teams-and-players.json");
-      if (d2 && d2.pageProps && d2.pageProps.teams) return d2.pageProps.teams;
+  // Group roster rows back into the team structure buildAnalysis expects
+  var rows = await mySupaFetch("rosters", "select=*&retired=eq.false");
+  var teamMap = {};
+  rows.forEach(function(r) {
+    if (!teamMap[r.team_id]) {
+      teamMap[r.team_id] = {
+        id: r.team_id,
+        name: r.team_name,
+        name_short: r.team_name_short,
+        color_hex: r.team_color,
+        players: []
+      };
     }
-  } catch(e2) { console.warn("Auto-detect buildId failed:", e2); }
-  return [];
+    teamMap[r.team_id].players.push({
+      id: r.player_id,
+      name: r.player_name,
+      position_id: r.position_id,
+      retired: false
+    });
+  });
+  return Object.values(teamMap);
 }
 async function fetchStandings(eventId) {
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";
-  return proxyFetch(SUPABASE_BASE + "?" + STANDINGS_FIELDS + "&season_id=eq.2026&" + filter + "&order=rank.asc&apikey=" + SUPABASE_KEY);
+  var url = STANDINGS_SUPABASE_API + "/standings?" + STANDINGS_FIELDS + "&season_id=eq.2026&" + filter + "&order=rank.asc&apikey=" + STANDINGS_SUPABASE_KEY;
+  var res = await fetch(url, {headers: {"apikey": STANDINGS_SUPABASE_KEY}});
+  if (!res.ok) throw new Error("Standings fetch failed (" + res.status + ")");
+  return res.json();
 }
 
 var s = function(obj, key, def) { if (def === undefined) def = 0; return (obj && obj[key] != null) ? obj[key] : def; };
@@ -139,15 +143,20 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
   var seen = {};
   var matchups = [];
   known.forEach(function(m) {
-    var key = Math.min(m.team_1_id, m.team_2_id) + "-" + Math.max(m.team_1_id, m.team_2_id) + "-" + (m.events && m.events.id);
+    var key = Math.min(m.team_1_id, m.team_2_id) + "-" + Math.max(m.team_1_id, m.team_2_id) + "-" + (m.event_id);
     if (seen[key]) return;
     seen[key] = true;
     var t1 = teamStats[m.team_1_id] || {}, t2 = teamStats[m.team_2_id] || {};
     var p1 = powerLookup[m.team_1_id] || {}, p2 = powerLookup[m.team_2_id] || {};
     var edge = Math.abs((p1.score || 0) - (p2.score || 0));
-    var favored = (p1.score || 0) >= (p2.score || 0) ? (m.team1 && m.team1.name_short) : (m.team2 && m.team2.name_short);
+    var favored = (p1.score || 0) >= (p2.score || 0) ? m.team_1_name_short : m.team_2_name_short;
 
-    matchups.push({id: m.id, datetime: m.datetime, bestOf: m.best_of, t1: m.team1, t2: m.team2, event: m.events, round: m.round, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.team_1_id), t2Roster: rosterStats(m.team_2_id), p1: p1, p2: p2, edge: edge, favored: favored});
+    // Build objects matching the shape the rest of the app expects
+    var t1Obj = {name: m.team_1_name, name_short: m.team_1_name_short};
+    var t2Obj = {name: m.team_2_name, name_short: m.team_2_name_short};
+    var evObj = {id: m.event_id, name: m.event_name, name_short: m.event_name_short};
+
+    matchups.push({id: m.id, datetime: m.datetime, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.team_1_id), t2Roster: rosterStats(m.team_2_id), p1: p1, p2: p2, edge: edge, favored: favored});
   });
 
   return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};

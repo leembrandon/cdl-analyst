@@ -31,22 +31,24 @@ async function fetchMatches() {
   return live.concat(upcoming);
 }
 async function fetchRosters() {
+  // Try current known build ID first, then auto-detect if it fails
+  var buildIds = ["vk2QalvbuKsOkyHt-qh5C"];
+  for (var i = 0; i < buildIds.length; i++) {
+    try {
+      var d = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + buildIds[i] + "/en/cdl/teams-and-players.json");
+      if (d && d.pageProps && d.pageProps.teams && d.pageProps.teams.length > 0) return d.pageProps.teams;
+    } catch(e) { console.warn("Build ID " + buildIds[i] + " failed:", e); }
+  }
+  // Auto-detect: fetch the main page source to find the buildId
   try {
-    // Try tRPC endpoint for CDL teams with rosters
-    var p = {"0":{"json":{"seasonId":2026,"onlyCDLStats":true}}};
-    var d = await proxyFetch("https://www.breakingpoint.gg/api/trpc/teams.getTeamsWithPlayers?batch=1&input=" + encodeURIComponent(JSON.stringify(p)));
-    var teams = (d && d[0] && d[0].result && d[0].result.data && d[0].result.data.json) || [];
-    if (teams.length > 0) return teams;
-  } catch(e) { console.warn("tRPC roster fetch failed, trying _next/data fallback:", e); }
-  try {
-    // Fallback: get buildId from a script tag on the homepage
-    var homeRes = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg/api/trpc/teams.getAllCDLTeams?batch=1&input=" + encodeURIComponent(JSON.stringify({"0":{"json":{"seasonId":2026}}}))));
-    if (homeRes.ok) {
-      var homeData = await homeRes.json();
-      var teams2 = (homeData && homeData[0] && homeData[0].result && homeData[0].result.data && homeData[0].result.data.json) || [];
-      if (teams2.length > 0) return teams2;
+    var res = await fetch("/api/proxy?url=" + encodeURIComponent("https://www.breakingpoint.gg"));
+    var text = await res.text();
+    var match = text.match(/_next\/data\/([^/]+)\//);
+    if (match && match[1]) {
+      var d2 = await proxyFetch("https://www.breakingpoint.gg/_next/data/" + match[1] + "/en/cdl/teams-and-players.json");
+      if (d2 && d2.pageProps && d2.pageProps.teams) return d2.pageProps.teams;
     }
-  } catch(e2) { console.warn("Fallback roster fetch also failed:", e2); }
+  } catch(e2) { console.warn("Auto-detect buildId failed:", e2); }
   return [];
 }
 async function fetchStandings(eventId) {

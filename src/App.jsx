@@ -156,18 +156,7 @@ function RoleBadge(props) {
   var role = props.role;
   if (!role) return null;
   var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px", paddingLeft: "6px", paddingRight: "6px", paddingTop: "2px", paddingBottom: "2px", borderRadius: "4px", marginLeft: "6px", lineHeight: "normal", display: "inline-block", verticalAlign: "middle"}}>{role}</span>;
-}
-
-function ShareRoleBadge(props) {
-  var role = props.role;
-  if (!role) return null;
-  var c = {AR: "#53a8b6", SMG: "#e94560", Flex: "#ffd166"};
-  return <span style={{display: "inline-block", marginLeft: "5px", verticalAlign: "middle", position: "relative", top: "-1px"}}>
-    <span style={{display: "table", background: "rgba(255,255,255,0.08)", borderRadius: "3px"}}>
-      <span style={{display: "table-cell", verticalAlign: "middle", padding: "2px 5px", fontSize: "9px", fontWeight: 600, color: c[role] || "#888", lineHeight: 1}}>{role}</span>
-    </span>
-  </span>;
+  return <span className="text-xs px-1.5 py-0.5 rounded ml-1.5" style={{background: "rgba(255,255,255,0.08)", color: c[role] || "#888", fontSize: "10px"}}>{role}</span>;
 }
 
 function H2HRow(props) {
@@ -656,12 +645,12 @@ function PlayerCompare(props) {
         <div className="px-3 pt-2.5 pb-1">
           <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
             <div className="text-center">
-              <div style={{textAlign: "center", lineHeight: "20px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", verticalAlign: "middle"}}>{p1.player_tag}</span><ShareRoleBadge role={p1.role} /></div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span><RoleBadge role={p1.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p1.team_name}</div>
             </div>
             <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
             <div className="text-center">
-              <div style={{textAlign: "center", lineHeight: "20px"}}><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", verticalAlign: "middle"}}>{p2.player_tag}</span><ShareRoleBadge role={p2.role} /></div>
+              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span><RoleBadge role={p2.role} /></div>
               <div style={{fontSize: "9px", color: "#555", marginTop: "1px"}}>{p2.team_name}</div>
             </div>
           </div>

@@ -22,7 +22,7 @@ async function fetchTeams() {
   return mySupaFetch("team_stats", "select=*");
 }
 async function fetchMatches() {
-  return mySupaFetch("matches", "select=*&order=datetime.asc");
+  return mySupaFetch("matches", "select=*&status=neq.completed&order=datetime.asc");
 }
 async function fetchRosters() {
   // Group roster rows back into the team structure buildAnalysis expects

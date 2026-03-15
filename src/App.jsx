@@ -396,9 +396,22 @@ function PlayerSearch(props) {
     })}</div>}
     {selected && <div className="space-y-3">
       <div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold text-white">{selected.player_tag}</h3><RoleBadge role={selected.role} /></div><span className="text-sm opacity-50">{selected.team_name}</span></div><button onClick={function() { setSelected(null); }} className="text-xs opacity-50 hover:opacity-100">{"\u2715"} clear</button></div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
-        <Stat label="Overall K/D" value={s(selected, "kd")} /><Stat label="HP K/D" value={s(selected, "hp_kd")} /><Stat label="SnD K/D" value={s(selected, "snd_kd")} /><Stat label="OVL K/D" value={s(selected, "ovl_kd")} />
-        <Stat label="HP K/10m" value={s(selected, "hp_k_10m")} fmt="0.0" /><Stat label="SnD KPR" value={s(selected, "snd_kpr")} /><Stat label="OVL K/10m" value={s(selected, "ovl_k_10m")} fmt="0.0" />
+      <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.03)"}}>
+        <div className="grid grid-cols-3 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+          <Stat label="Overall K/D" value={s(selected, "kd")} /><Stat label="DMG/min" value={s(selected, "dmg_per_min")} fmt="0.0" /><Stat label="FB%" value={s(selected, "first_blood_percentage") * 100} fmt="0.0" />
+        </div>
+        <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+          <Stat label="HP K/D" value={s(selected, "hp_kd")} /><Stat label="K/10" value={s(selected, "hp_k_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "hp_d_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "hp_dmg_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "hp_eng_10m")} fmt="0.0" />
+        </div>
+        <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+          <Stat label="SnD K/D" value={s(selected, "snd_kd")} /><Stat label="KPR" value={s(selected, "snd_kpr")} /><Stat label="DPR" value={s(selected, "snd_dpr")} /><Stat label="FB%" value={s(selected, "first_blood_percentage") * 100} fmt="0.0" />
+        </div>
+        <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Overload</div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <Stat label="OVL K/D" value={s(selected, "ovl_kd")} /><Stat label="K/10" value={s(selected, "ovl_k_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "ovl_d_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "ovl_dmg_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "ovl_eng_10m")} fmt="0.0" />
+        </div>
       </div>
     </div>}
   </div>;
@@ -442,28 +455,51 @@ function PlayerCompare(props) {
 
   var stats = [
     {label: "K/D", k: "kd"},
+    {label: "DMG/min", k: "dmg_per_min", fmt: "0.0"},
+    {label: "FB%", k: "first_blood_percentage", fmt: "pct", pctMul: true},
     {label: "HP K/D", k: "hp_kd"},
+    {label: "HP K/10", k: "hp_k_10m", fmt: "0.0"},
+    {label: "HP D/10", k: "hp_d_10m", fmt: "0.0", lower: true},
+    {label: "HP DMG/10", k: "hp_dmg_10m", fmt: "0.0"},
+    {label: "HP ENG/10", k: "hp_eng_10m", fmt: "0.0"},
     {label: "SnD K/D", k: "snd_kd"},
-    {label: "OVL K/D", k: "ovl_kd"},
-    {label: "HP K/10m", k: "hp_k_10m", fmt: "0.0"},
-    {label: "HP D/10m", k: "hp_d_10m", fmt: "0.0"},
     {label: "SnD KPR", k: "snd_kpr"},
-    {label: "SnD DPR", k: "snd_dpr"},
-    {label: "OVL K/10m", k: "ovl_k_10m", fmt: "0.0"},
-    {label: "OVL D/10m", k: "ovl_d_10m", fmt: "0.0"}
+    {label: "SnD DPR", k: "snd_dpr", lower: true},
+    {label: "SnD FB%", k: "first_blood_percentage", fmt: "pct", pctMul: true},
+    {label: "OVL K/D", k: "ovl_kd"},
+    {label: "OVL K/10", k: "ovl_k_10m", fmt: "0.0"},
+    {label: "OVL D/10", k: "ovl_d_10m", fmt: "0.0", lower: true},
+    {label: "OVL DMG/10", k: "ovl_dmg_10m", fmt: "0.0"},
+    {label: "OVL ENG/10", k: "ovl_eng_10m", fmt: "0.0"}
   ];
 
   var p1Wins = 0, p2Wins = 0;
+  var counted = {};
   if (p1 && p2) {
     stats.forEach(function(st) {
+      var key = st.k + (st.label || "");
+      if (counted[key]) return;
+      counted[key] = true;
       var v1 = s(p1, st.k), v2 = s(p2, st.k);
-      var higher = st.k.indexOf("_d_") !== -1 || st.k === "snd_dpr";
-      if (higher) { if (v1 < v2) p1Wins++; else if (v2 < v1) p2Wins++; }
+      if (st.lower) { if (v1 < v2) p1Wins++; else if (v2 < v1) p2Wins++; }
       else { if (v1 > v2) p1Wins++; else if (v2 > v1) p2Wins++; }
     });
   }
+  var totalCats = Object.keys(counted).length;
 
   var handleItem = function(e, pickFn, p) { e.preventDefault(); e.stopPropagation(); pickFn(p); };
+
+  var fmtCompare = function(v, st) {
+    if (st.pctMul) return (v * 100).toFixed(1) + "%";
+    if (st.fmt === "pct") return v.toFixed(1) + "%";
+    if (st.fmt === "0.0") return v.toFixed(1);
+    return v.toFixed(2);
+  };
+
+  var compareColor = function(v1, v2, st) {
+    if (st.lower) return v1 < v2 ? "#52b788" : v1 > v2 ? "#888" : "#ffd166";
+    return v1 > v2 ? "#52b788" : v1 < v2 ? "#888" : "#ffd166";
+  };
 
   return <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
@@ -487,6 +523,12 @@ function PlayerCompare(props) {
     </div>
 
     {p1 && p2 && <div>
+      <div className="sticky z-10 grid grid-cols-3 items-center py-2 px-3 rounded-lg mb-3" style={{top: "72px", background: "#0d0d1a", borderBottom: "1px solid rgba(255,255,255,0.08)"}}>
+        <div className="text-right pr-3"><div className="text-sm font-bold text-white">{p1.player_tag}</div><div style={{fontSize: "10px", color: "#555"}}>{p1.team_short} · {p1.role}</div></div>
+        <div className="flex justify-center"><div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560"}}>VS</div></div>
+        <div className="text-left pl-3"><div className="text-sm font-bold text-white">{p2.player_tag}</div><div style={{fontSize: "10px", color: "#555"}}>{p2.team_short} · {p2.role}</div></div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
           <div className="text-lg font-bold text-white">{p1.player_tag}</div>
@@ -516,13 +558,17 @@ function PlayerCompare(props) {
             <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overall</div>
           </div>
           <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
+          <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
+          <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
 
           <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
             <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
           </div>
           <CompareRow label="HP K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
-          <CompareRow label="K/10m" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
-          <CompareRow label="D/10m" v1={s(p1, "hp_d_10m")} v2={s(p2, "hp_d_10m")} fmt="0.0" />
+          <CompareRow label="K/10" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
+          <CompareRow label="D/10" v1={s(p1, "hp_d_10m")} v2={s(p2, "hp_d_10m")} fmt="0.0" />
+          <CompareRow label="DMG/10" v1={s(p1, "hp_dmg_10m")} v2={s(p2, "hp_dmg_10m")} fmt="0.0" />
+          <CompareRow label="ENG/10" v1={s(p1, "hp_eng_10m")} v2={s(p2, "hp_eng_10m")} fmt="0.0" />
 
           <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
             <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
@@ -530,18 +576,21 @@ function PlayerCompare(props) {
           <CompareRow label="SnD K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
           <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
           <CompareRow label="DPR" v1={s(p1, "snd_dpr")} v2={s(p2, "snd_dpr")} />
+          <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
 
           <div className="py-1 mt-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
             <div className="text-xs font-semibold" style={{color: "#e94560", padding: "4px 0"}}>Overload</div>
           </div>
           <CompareRow label="OVL K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
-          <CompareRow label="K/10m" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
-          <CompareRow label="D/10m" v1={s(p1, "ovl_d_10m")} v2={s(p2, "ovl_d_10m")} fmt="0.0" />
+          <CompareRow label="K/10" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
+          <CompareRow label="D/10" v1={s(p1, "ovl_d_10m")} v2={s(p2, "ovl_d_10m")} fmt="0.0" />
+          <CompareRow label="DMG/10" v1={s(p1, "ovl_dmg_10m")} v2={s(p2, "ovl_dmg_10m")} fmt="0.0" />
+          <CompareRow label="ENG/10" v1={s(p1, "ovl_eng_10m")} v2={s(p2, "ovl_eng_10m")} fmt="0.0" />
         </div>
 
         <div className="grid grid-cols-3 items-center py-3 px-2" style={{borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)"}}>
           <div className="text-right pr-4"><div className="text-xl font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
-          <div className="text-center text-xs opacity-30">of {stats.length}</div>
+          <div className="text-center text-xs opacity-30">of {totalCats}</div>
           <div className="text-left pl-4"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
         </div>
       </div>
@@ -560,20 +609,28 @@ function PlayerLeaderboard(props) {
     {key: "kd", label: "K/D"},
     {key: "hp_k_10m", label: "HP K/10"},
     {key: "hp_kd", label: "HP K/D"},
+    {key: "hp_dmg_10m", label: "HP DMG/10"},
+    {key: "hp_eng_10m", label: "HP ENG/10"},
     {key: "snd_kpr", label: "SnD KPR"},
     {key: "snd_kd", label: "SnD K/D"},
+    {key: "first_blood_percentage", label: "FB%"},
     {key: "ovl_k_10m", label: "OVL K/10"},
-    {key: "ovl_kd", label: "OVL K/D"}
+    {key: "ovl_kd", label: "OVL K/D"},
+    {key: "dmg_per_min", label: "DMG/min"}
   ];
 
   var contextStats = {
     kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}],
-    hp_k_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_d_10m", label: "HP D/10", fmt: "0.0"}],
+    hp_k_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_dmg_10m", label: "HP DMG/10", fmt: "0.0"}],
     hp_kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_d_10m", label: "HP D/10", fmt: "0.0"}],
-    snd_kpr: [{k: "snd_kd", label: "SnD K/D", fmt: "0.00"}, {k: "snd_dpr", label: "SnD DPR", fmt: "0.00"}],
+    hp_dmg_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_eng_10m", label: "HP ENG/10", fmt: "0.0"}],
+    hp_eng_10m: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_dmg_10m", label: "HP DMG/10", fmt: "0.0"}],
+    snd_kpr: [{k: "snd_kd", label: "SnD K/D", fmt: "0.00"}, {k: "first_blood_percentage", label: "FB%", fmt: "pct"}],
     snd_kd: [{k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}, {k: "snd_dpr", label: "SnD DPR", fmt: "0.00"}],
-    ovl_k_10m: [{k: "ovl_kd", label: "OVL K/D", fmt: "0.00"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}],
-    ovl_kd: [{k: "ovl_k_10m", label: "OVL K/10", fmt: "0.0"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}]
+    first_blood_percentage: [{k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}, {k: "snd_kd", label: "SnD K/D", fmt: "0.00"}],
+    ovl_k_10m: [{k: "ovl_kd", label: "OVL K/D", fmt: "0.00"}, {k: "ovl_dmg_10m", label: "OVL DMG/10", fmt: "0.0"}],
+    ovl_kd: [{k: "ovl_k_10m", label: "OVL K/10", fmt: "0.0"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}],
+    dmg_per_min: [{k: "kd", label: "K/D", fmt: "0.00"}, {k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}]
   };
 
   var filtered = analysis.playerStats.filter(function(p) {
@@ -584,11 +641,12 @@ function PlayerLeaderboard(props) {
   var sorted = filtered.slice().sort(function(a, b) { return s(b, sortBy) - s(a, sortBy); });
 
   var fmtVal = function(v, fmt) {
+    if (fmt === "pct") return (v * 100).toFixed(1) + "%";
     if (fmt === "0.0") return v.toFixed(1);
     return v.toFixed(2);
   };
 
-  var mainFmt = sortBy.indexOf("k_10m") !== -1 || sortBy.indexOf("d_10m") !== -1 ? "0.0" : "0.00";
+  var mainFmt = sortBy === "first_blood_percentage" ? "pct" : (sortBy.indexOf("k_10m") !== -1 || sortBy.indexOf("d_10m") !== -1 || sortBy.indexOf("dmg_10m") !== -1 || sortBy.indexOf("eng_10m") !== -1 || sortBy === "dmg_per_min") ? "0.0" : "0.00";
 
   var roles = ["All"];
   var roleSet = {};

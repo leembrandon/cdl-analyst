@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { renderCompareCard, renderPlayerCard, renderTeamCard, renderMatchupCard, shareCanvas } from "./barracksShareRenderer.js";
 
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
@@ -501,29 +502,51 @@ function PlayerCompare(props) {
   var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p1, p); };
 
   var handleShareImage = function() {
-    if (!cardRef.current || sharing) return;
+    if (!p1 || !p2 || sharing) return;
     setSharing(true);
-    var script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-    script.onload = function() {
-      window.html2canvas(cardRef.current, {backgroundColor: "#0d0d1a", scale: 2, useCORS: true}).then(function(canvas) {
-        canvas.toBlob(function(blob) {
-          if (!blob) { setSharing(false); return; }
-          var file = new File([blob], "barracks-compare.png", {type: "image/png"});
-          if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
-            navigator.share({files: [file], title: (p1 ? p1.player_tag : "") + " vs " + (p2 ? p2.player_tag : "") + " — Barracks CDL Stats"}).catch(function() {}).finally(function() { setSharing(false); });
-          } else {
-            var link = document.createElement("a");
-            link.download = "barracks-" + (p1 ? p1.player_tag : "p1") + "-vs-" + (p2 ? p2.player_tag : "p2") + ".png";
-            link.href = canvas.toDataURL("image/png");
-            link.click();
-            setSharing(false);
-          }
-        }, "image/png");
-      }).catch(function() { setSharing(false); });
-    };
-    script.onerror = function() { setSharing(false); };
-    document.head.appendChild(script);
+    var shareStats = [
+      {title: "OVERALL", rows: [
+        {label: "K/D", v1: s(p1,"kd"), v2: s(p2,"kd"), fmt: "2"},
+        {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"}
+      ]},
+      {title: "HARDPOINT", rows: [
+        {label: "K/D", v1: s(p1,"hp_kd"), v2: s(p2,"hp_kd"), fmt: "2"},
+        {label: "K/10", v1: s(p1,"hp_k_10m"), v2: s(p2,"hp_k_10m"), fmt: "1"},
+        {label: "ENG/10", v1: s(p1,"hp_eng_10m"), v2: s(p2,"hp_eng_10m"), fmt: "1"}
+      ]},
+      {title: "S&D", rows: [
+        {label: "K/D", v1: s(p1,"snd_kd"), v2: s(p2,"snd_kd"), fmt: "2"},
+        {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"},
+        {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
+      ]},
+      {title: "OVERLOAD", rows: [
+        {label: "K/D", v1: s(p1,"ovl_kd"), v2: s(p2,"ovl_kd"), fmt: "2"},
+        {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
+      ]}
+    ];
+    var sp1Wins = 0, sp2Wins = 0;
+    shareStats.forEach(function(group) {
+      group.rows.forEach(function(row) {
+        if (row.v1 > row.v2) sp1Wins++;
+        else if (row.v2 > row.v1) sp2Wins++;
+      });
+    });
+    var totalCats = shareStats.reduce(function(n, g) { return n + g.rows.length; }, 0);
+    renderCompareCard({
+      p1: { tag: p1.player_tag, teamShort: p1.team_short, role: p1.role, kd: s(p1, "kd") },
+      p2: { tag: p2.player_tag, teamShort: p2.team_short, role: p2.role, kd: s(p2, "kd") },
+      sections: shareStats,
+      p1Wins: sp1Wins,
+      p2Wins: sp2Wins,
+      totalCats: totalCats,
+      shareUrl: "thebarracks.vercel.app"
+    }).then(function(canvas) {
+      return shareCanvas(canvas, "barracks-" + p1.player_tag + "-vs-" + p2.player_tag, "https://thebarracks.vercel.app?compare=" + encodeURIComponent(p1.player_tag) + "," + encodeURIComponent(p2.player_tag));
+    }).catch(function(e) {
+      console.error("Share render error:", e);
+    }).finally(function() {
+      setSharing(false);
+    });
   };
 
   var handleCopyLink = function() {

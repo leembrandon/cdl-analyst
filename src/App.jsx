@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { renderCompareCard, renderPlayerCard, renderTeamCard, renderMatchupCard, shareCanvas } from "./barracksShareRenderer.js";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
 const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
@@ -460,10 +459,8 @@ function PlayerCompare(props) {
   var [p2, setP2] = useState(null);
   var [show1, setShow1] = useState(false);
   var [show2, setShow2] = useState(false);
-  var [shareMode, setShareMode] = useState("full");
   var [sharing, setSharing] = useState(false);
   var [linkCopied, setLinkCopied] = useState(false);
-  var cardRef = useRef(null);
 
   useEffect(function() {
     if (!initialCompare || !analysis) return;
@@ -475,7 +472,6 @@ function PlayerCompare(props) {
     var found2 = analysis.playerStats.find(function(p) { return p.player_tag && p.player_tag.toLowerCase() === name2; });
     if (found1) { setP1(found1); setQ1(found1.player_tag); }
     if (found2) { setP2(found2); setQ2(found2.player_tag); }
-    if (found1 && found2) { setShareMode("compact"); }
   }, [initialCompare, analysis]);
 
   var updateUrl = function(player1, player2) {
@@ -504,47 +500,11 @@ function PlayerCompare(props) {
   var handleShareImage = function() {
     if (!p1 || !p2 || sharing) return;
     setSharing(true);
-    var shareStats = [
-      {title: "OVERALL", rows: [
-        {label: "K/D", v1: s(p1,"kd"), v2: s(p2,"kd"), fmt: "2"},
-        {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"}
-      ]},
-      {title: "HARDPOINT", rows: [
-        {label: "K/D", v1: s(p1,"hp_kd"), v2: s(p2,"hp_kd"), fmt: "2"},
-        {label: "K/10", v1: s(p1,"hp_k_10m"), v2: s(p2,"hp_k_10m"), fmt: "1"},
-        {label: "ENG/10", v1: s(p1,"hp_eng_10m"), v2: s(p2,"hp_eng_10m"), fmt: "1"}
-      ]},
-      {title: "S&D", rows: [
-        {label: "K/D", v1: s(p1,"snd_kd"), v2: s(p2,"snd_kd"), fmt: "2"},
-        {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"},
-        {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
-      ]},
-      {title: "OVERLOAD", rows: [
-        {label: "K/D", v1: s(p1,"ovl_kd"), v2: s(p2,"ovl_kd"), fmt: "2"},
-        {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
-      ]}
-    ];
-    var sp1Wins = 0, sp2Wins = 0;
-    shareStats.forEach(function(group) {
-      group.rows.forEach(function(row) {
-        if (row.v1 > row.v2) sp1Wins++;
-        else if (row.v2 > row.v1) sp2Wins++;
-      });
-    });
-    var totalCats = shareStats.reduce(function(n, g) { return n + g.rows.length; }, 0);
-    renderCompareCard({
-      p1: { tag: p1.player_tag, teamShort: p1.team_short, role: p1.role, kd: s(p1, "kd") },
-      p2: { tag: p2.player_tag, teamShort: p2.team_short, role: p2.role, kd: s(p2, "kd") },
-      sections: shareStats,
-      p1Wins: sp1Wins,
-      p2Wins: sp2Wins,
-      totalCats: totalCats,
-      shareUrl: "thebarracks.vercel.app"
-    }).then(function(canvas) {
-      return shareCanvas(canvas, "barracks-" + p1.player_tag + "-vs-" + p2.player_tag, "https://thebarracks.vercel.app?compare=" + encodeURIComponent(p1.player_tag) + "," + encodeURIComponent(p2.player_tag));
-    }).catch(function(e) {
-      console.error("Share render error:", e);
-    }).finally(function() {
+    import("./shareRenderer.js").then(function(mod) {
+      return mod.shareCompareImage(p1, p2);
+    }).then(function() {
+      setSharing(false);
+    }).catch(function() {
       setSharing(false);
     });
   };
@@ -559,20 +519,6 @@ function PlayerCompare(props) {
       prompt("Copy this link:", url);
     });
   };
-
-  var search = function(q) {
-    if (q.length < 2) return [];
-    var lower = q.toLowerCase();
-    return analysis.playerStats.filter(function(p) {
-      return (p.player_tag && p.player_tag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
-    }).slice(0, 6);
-  };
-
-  var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
-  var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
-
-  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); if (document.activeElement) document.activeElement.blur(); };
-  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); };
 
   var stats = [
     {label: "K/D", k: "kd"},
@@ -610,8 +556,6 @@ function PlayerCompare(props) {
   var handleItem = function(e, pickFn, p) { e.preventDefault(); e.stopPropagation(); pickFn(p); };
 
   var winner = p1 && p2 ? (p1Wins > p2Wins ? p1 : p2Wins > p1Wins ? p2 : null) : null;
-  var winnerWins = winner === p1 ? p1Wins : p2Wins;
-  var loserWins = winner === p1 ? p2Wins : p1Wins;
 
   return <div className="space-y-4">
     {/* Search inputs — horizontal on mobile with VS between */}
@@ -635,144 +579,13 @@ function PlayerCompare(props) {
       </div>
     </div>
 
-    {/* View toggle + reset when both selected */}
-    {p1 && p2 && <div className="flex items-center justify-between">
-      <div className="flex gap-1">
-        {["full", "compact"].map(function(m) {
-          return <button key={m} onClick={function() { setShareMode(m); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: shareMode === m ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: shareMode === m ? "#e94560" : "#666"}}>{m === "full" ? "Full breakdown" : "Share card"}</button>;
-        })}
-      </div>
+    {/* Reset button when both selected */}
+    {p1 && p2 && <div className="flex items-center justify-end">
       <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); updateUrl(null, null); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
     </div>}
 
-    {/* ===== SHARE CARD MODE — ultra-compact, fits one phone screen ===== */}
-    {p1 && p2 && shareMode === "compact" && function() {
-      var sc = function(v1, v2, lower) {
-        if (lower) return v1 < v2 ? "#52b788" : v1 > v2 ? "#666" : "#ffd166";
-        return v1 > v2 ? "#52b788" : v1 < v2 ? "#666" : "#ffd166";
-      };
-      var fv = function(v, fmt) { return fmt === "pct" ? v.toFixed(1) + "%" : fmt === "1" ? v.toFixed(1) : v.toFixed(2); };
-      var StatCell = function(props) {
-        return <div className="text-center" style={{padding: "3px 0"}}>
-          <div style={{fontSize: "12px", fontWeight: 700, color: props.color, fontVariantNumeric: "tabular-nums"}}>{props.val}</div>
-        </div>;
-      };
-      var shareStats = [
-        {section: "OVERALL", rows: [
-          {label: "K/D", v1: s(p1,"kd"), v2: s(p2,"kd"), fmt: "2"},
-          {label: "DMG/m", v1: s(p1,"dmg_per_min"), v2: s(p2,"dmg_per_min"), fmt: "1"}
-        ]},
-        {section: "HARDPOINT", rows: [
-          {label: "K/D", v1: s(p1,"hp_kd"), v2: s(p2,"hp_kd"), fmt: "2"},
-          {label: "K/10", v1: s(p1,"hp_k_10m"), v2: s(p2,"hp_k_10m"), fmt: "1"},
-          {label: "ENG/10", v1: s(p1,"hp_eng_10m"), v2: s(p2,"hp_eng_10m"), fmt: "1"}
-        ]},
-        {section: "S&D", rows: [
-          {label: "K/D", v1: s(p1,"snd_kd"), v2: s(p2,"snd_kd"), fmt: "2"},
-          {label: "KPR", v1: s(p1,"snd_kpr"), v2: s(p2,"snd_kpr"), fmt: "2"},
-          {label: "FB%", v1: s(p1,"first_blood_percentage")*100, v2: s(p2,"first_blood_percentage")*100, fmt: "1"}
-        ]},
-        {section: "OVERLOAD", rows: [
-          {label: "K/D", v1: s(p1,"ovl_kd"), v2: s(p2,"ovl_kd"), fmt: "2"},
-          {label: "K/10", v1: s(p1,"ovl_k_10m"), v2: s(p2,"ovl_k_10m"), fmt: "1"}
-        ]}
-      ];
-      var shareP1Wins = 0, shareP2Wins = 0;
-      shareStats.forEach(function(group) {
-        group.rows.forEach(function(row) {
-          if (row.v1 > row.v2) shareP1Wins++;
-          else if (row.v2 > row.v1) shareP2Wins++;
-        });
-      });
-      var shareTotalCats = shareP1Wins + shareP2Wins + shareStats.reduce(function(n, g) { return n + g.rows.filter(function(r) { return r.v1 === r.v2; }).length; }, 0);
-      var shareWinner = shareP1Wins > shareP2Wins ? p1 : shareP2Wins > shareP1Wins ? p2 : null;
-      return <div id="compare-share-card" ref={cardRef} className="rounded-2xl overflow-hidden" style={{background: "#111128", border: "1px solid rgba(255,255,255,0.08)"}}>
-        {/* Branding header — single tight line */}
-        <div className="flex items-center justify-between px-3 py-1.5" style={{background: "rgba(233,69,96,0.08)", borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
-          <span style={{fontSize: "10px", fontWeight: 900, letterSpacing: "2px", color: "#e94560"}}>BARRACKS</span>
-          <span style={{fontSize: "8px", color: "#444", letterSpacing: "0.5px"}}>CDL 2026</span>
-        </div>
-
-        {/* Player names + K/D hero — tight */}
-        <div className="px-3 pt-2.5 pb-1">
-          <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center"}}>
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p1.player_tag}</span></div>
-              <div className="flex items-center justify-center" style={{gap: "3px", marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p1.team_short}</span><RoleBadge role={p1.role} /></div>
-            </div>
-            <div className="text-center"><span style={{fontSize: "9px", fontWeight: 800, color: "#e94560"}}>VS</span></div>
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-1"><span style={{fontSize: "15px", fontWeight: 900, color: "#fff", lineHeight: 1.1}}>{p2.player_tag}</span></div>
-              <div className="flex items-center justify-center" style={{gap: "3px", marginTop: "1px"}}><span style={{fontSize: "9px", color: "#555"}}>{p2.team_short}</span><RoleBadge role={p2.role} /></div>
-            </div>
-          </div>
-          {/* K/D hero numbers */}
-          <div style={{display: "grid", gridTemplateColumns: "1fr 28px 1fr", alignItems: "center", marginTop: "4px"}}>
-            <div className="text-center">
-              <div style={{fontSize: "26px", fontWeight: 900, color: kdColor(s(p1,"kd")), lineHeight: 1}}>{s(p1,"kd").toFixed(2)}</div>
-            </div>
-            <div className="text-center"><span style={{fontSize: "7px", color: "#444", letterSpacing: "0.5px"}}>K/D</span></div>
-            <div className="text-center">
-              <div style={{fontSize: "26px", fontWeight: 900, color: kdColor(s(p2,"kd")), lineHeight: 1}}>{s(p2,"kd").toFixed(2)}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Stat table — dense 3-col grid: P1 val | stat label | P2 val */}
-        <div className="px-3 pb-1">
-          {shareStats.map(function(group) {
-            return <div key={group.section}>
-              <div style={{fontSize: "8px", fontWeight: 700, color: "#e94560", letterSpacing: "1.5px", padding: "5px 0 1px"}}>{group.section}</div>
-              {group.rows.map(function(row) {
-                var f = row.fmt === "1" ? row.v1.toFixed(1) : row.v1.toFixed(2);
-                var f2 = row.fmt === "1" ? row.v2.toFixed(1) : row.v2.toFixed(2);
-                var c1 = sc(row.v1, row.v2, row.lower);
-                var c2 = sc(row.v2, row.v1, row.lower);
-                return <div key={row.label} style={{display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.025)"}}>
-                  <div style={{textAlign: "right", paddingRight: "8px"}}><span style={{fontSize: "12px", fontWeight: 700, color: c1, fontVariantNumeric: "tabular-nums"}}>{f}</span></div>
-                  <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.3px", minWidth: "40px", textAlign: "center"}}>{row.label}</div>
-                  <div style={{textAlign: "left", paddingLeft: "8px"}}><span style={{fontSize: "12px", fontWeight: 700, color: c2, fontVariantNumeric: "tabular-nums"}}>{f2}</span></div>
-                </div>;
-              })}
-            </div>;
-          })}
-        </div>
-
-        {/* Verdict — tight bar + result */}
-        <div className="mx-3 mb-2.5 mt-1 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
-          <div className="flex" style={{height: "3px"}}>
-            <div style={{width: (shareTotalCats > 0 ? (shareP1Wins / shareTotalCats * 100) : 50) + "%", background: shareP1Wins >= shareP2Wins ? "#52b788" : "#ff6b6b"}} />
-            <div style={{width: (shareTotalCats > 0 ? ((shareTotalCats - shareP1Wins - shareP2Wins) / shareTotalCats * 100) : 0) + "%", background: "#ffd166"}} />
-            <div style={{width: (shareTotalCats > 0 ? (shareP2Wins / shareTotalCats * 100) : 50) + "%", background: shareP2Wins >= shareP1Wins ? "#52b788" : "#ff6b6b"}} />
-          </div>
-          <div style={{display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", padding: "6px 10px"}}>
-            <div className="text-left"><span style={{fontSize: "18px", fontWeight: 900, color: shareP1Wins >= shareP2Wins ? "#52b788" : "#ff6b6b"}}>{shareP1Wins}</span><span style={{fontSize: "9px", color: "#555", marginLeft: "3px"}}>wins</span></div>
-            <div className="text-center">
-              {shareWinner ? <div><div style={{fontSize: "7px", color: "#555", letterSpacing: "1px"}}>VERDICT</div><div style={{fontSize: "11px", fontWeight: 900, color: "#52b788"}}>{shareWinner.player_tag}</div></div> : <div style={{fontSize: "10px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
-            </div>
-            <div className="text-right"><span style={{fontSize: "9px", color: "#555", marginRight: "3px"}}>wins</span><span style={{fontSize: "18px", fontWeight: 900, color: shareP2Wins >= shareP1Wins ? "#52b788" : "#ff6b6b"}}>{shareP2Wins}</span></div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="text-center pb-2.5" style={{opacity: 0.35}}><span style={{fontSize: "8px", letterSpacing: "1px"}}>thebarracks.vercel.app</span></div>
-      </div>;
-    }()}
-
-    {/* Share action buttons — only in compact mode */}
-    {p1 && p2 && shareMode === "compact" && <div className="flex gap-2 mt-3">
-      <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
-        {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
-        <span>{sharing ? "Generating..." : "Share image"}</span>
-      </button>
-      <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0", transition: "all 0.2s"}}>
-        {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
-        <span>{linkCopied ? "Copied!" : "Copy link"}</span>
-      </button>
-    </div>}
-
-    {/* ===== FULL BREAKDOWN MODE — original detailed view ===== */}
-    {p1 && p2 && shareMode === "full" && <div>
+    {/* ===== FULL BREAKDOWN — always shown when both players selected ===== */}
+    {p1 && p2 && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
           <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span></div>
@@ -836,6 +649,18 @@ function PlayerCompare(props) {
             <div className="text-right"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
           </div>
         </div>
+      </div>
+
+      {/* Share actions — directly below the full breakdown */}
+      <div className="flex gap-2 mt-4">
+        <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
+          {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+          <span>{sharing ? "Generating..." : "Share image"}</span>
+        </button>
+        <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0", transition: "all 0.2s"}}>
+          {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+          <span>{linkCopied ? "Copied!" : "Copy link"}</span>
+        </button>
       </div>
     </div>}
 

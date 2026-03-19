@@ -193,9 +193,9 @@ export function renderCompareImage(p1, p2) {
   // --- Column header ---
   ctx.fillStyle = "rgba(255,255,255,0.04)";
   ctx.fillRect(0, y, CARD_WIDTH, colHeaderH);
-  drawText(ctx, p1.player_tag, mid - 14, y + 11, {size: 11, weight: "700", color: ACCENT, align: "right"});
+  drawText(ctx, p1.player_tag, mid - 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "right"});
   drawText(ctx, "stat", mid, y + 12, {size: 10, weight: "400", color: "rgba(255,255,255,0.3)", align: "center"});
-  drawText(ctx, p2.player_tag, mid + 14, y + 11, {size: 11, weight: "700", color: ACCENT, align: "left"});
+  drawText(ctx, p2.player_tag, mid + 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "left"});
   y += colHeaderH;
 
   // --- Stat rows ---
@@ -214,9 +214,9 @@ export function renderCompareImage(p1, p2) {
       ctx.fillStyle = "rgba(255,255,255,0.025)";
       ctx.fillRect(CARD_PADDING, y + ROW_H - 1, CARD_WIDTH - CARD_PADDING * 2, 1);
 
-      drawText(ctx, f1, mid - 14, y + 7, {size: 13, weight: "700", color: c1, align: "right"});
+      drawText(ctx, f1, mid - 44, y + 7, {size: 13, weight: "700", color: c1, align: "right"});
       drawText(ctx, row.label, mid, y + 8, {size: 10, weight: "400", color: TEXT_DIM, align: "center"});
-      drawText(ctx, f2, mid + 14, y + 7, {size: 13, weight: "700", color: c2, align: "left"});
+      drawText(ctx, f2, mid + 44, y + 7, {size: 13, weight: "700", color: c2, align: "left"});
 
       y += ROW_H;
     });

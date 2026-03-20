@@ -2,6 +2,8 @@
  * shareRenderer.js
  * Pure Canvas API renderer for Barracks CDL share images.
  * No html2canvas dependency — draws everything pixel-by-pixel.
+ *
+ * Updated for v2 schema column names.
  */
 
 var CARD_WIDTH = 720;
@@ -27,12 +29,6 @@ function kdColor(kd) {
 function scoreColor(v1, v2, lower) {
   if (lower) return v1 < v2 ? GREEN : v1 > v2 ? "#666666" : YELLOW;
   return v1 > v2 ? GREEN : v1 < v2 ? "#666666" : YELLOW;
-}
-
-function fmtVal(v, fmt) {
-  if (fmt === "pct") return v.toFixed(1) + "%";
-  if (fmt === "1" || fmt === "0.0") return v.toFixed(1);
-  return v.toFixed(2);
 }
 
 function s(obj, key, def) {
@@ -75,38 +71,33 @@ function drawText(ctx, text, x, y, opts) {
   ctx.fillText(text, x, y);
 }
 
-function measureText(ctx, text, size, weight) {
-  ctx.font = (weight || "400") + " " + (size || 14) + "px system-ui, -apple-system, sans-serif";
-  return ctx.measureText(text).width;
-}
-
-// --- Compare card stats definition ---
+// --- Compare card stats definition (v2 column names) ---
 
 function getCompareStats(p1, p2) {
   return [
     {section: "OVERALL", rows: [
       {label: "K/D", v1: s(p1, "kd"), v2: s(p2, "kd"), fmt: "2"},
-      {label: "DMG/min", v1: s(p1, "dmg_per_min"), v2: s(p2, "dmg_per_min"), fmt: "1"}
+      {label: "DMG/10m", v1: s(p1, "dmg_per_10m"), v2: s(p2, "dmg_per_10m"), fmt: "1"}
     ]},
     {section: "HARDPOINT", rows: [
       {label: "K/D", v1: s(p1, "hp_kd"), v2: s(p2, "hp_kd"), fmt: "2"},
-      {label: "K/10", v1: s(p1, "hp_k_10m"), v2: s(p2, "hp_k_10m"), fmt: "1"},
-      {label: "D/10", v1: s(p1, "hp_d_10m"), v2: s(p2, "hp_d_10m"), fmt: "1", lower: true},
-      {label: "DMG/10", v1: s(p1, "hp_dmg_10m"), v2: s(p2, "hp_dmg_10m"), fmt: "1"},
-      {label: "ENG/10", v1: s(p1, "hp_eng_10m"), v2: s(p2, "hp_eng_10m"), fmt: "1"}
+      {label: "K/10", v1: s(p1, "hp_kills_per_10m"), v2: s(p2, "hp_kills_per_10m"), fmt: "1"},
+      {label: "D/10", v1: s(p1, "hp_deaths_per_10m"), v2: s(p2, "hp_deaths_per_10m"), fmt: "1", lower: true},
+      {label: "DMG/10", v1: s(p1, "hp_damage_per_10m"), v2: s(p2, "hp_damage_per_10m"), fmt: "1"},
+      {label: "ENG/10", v1: s(p1, "hp_engagements_10m"), v2: s(p2, "hp_engagements_10m"), fmt: "1"}
     ]},
     {section: "SEARCH & DESTROY", rows: [
       {label: "K/D", v1: s(p1, "snd_kd"), v2: s(p2, "snd_kd"), fmt: "2"},
-      {label: "KPR", v1: s(p1, "snd_kpr"), v2: s(p2, "snd_kpr"), fmt: "2"},
-      {label: "DPR", v1: s(p1, "snd_dpr"), v2: s(p2, "snd_dpr"), fmt: "2", lower: true},
-      {label: "FB%", v1: s(p1, "first_blood_percentage") * 100, v2: s(p2, "first_blood_percentage") * 100, fmt: "1"}
+      {label: "KPR", v1: s(p1, "snd_kills_per_round"), v2: s(p2, "snd_kills_per_round"), fmt: "2"},
+      {label: "DPR", v1: s(p1, "snd_deaths_per_round"), v2: s(p2, "snd_deaths_per_round"), fmt: "2", lower: true},
+      {label: "FB%", v1: s(p1, "first_blood_pct") * 100, v2: s(p2, "first_blood_pct") * 100, fmt: "1"}
     ]},
     {section: "OVERLOAD", rows: [
       {label: "K/D", v1: s(p1, "ovl_kd"), v2: s(p2, "ovl_kd"), fmt: "2"},
-      {label: "K/10", v1: s(p1, "ovl_k_10m"), v2: s(p2, "ovl_k_10m"), fmt: "1"},
-      {label: "D/10", v1: s(p1, "ovl_d_10m"), v2: s(p2, "ovl_d_10m"), fmt: "1", lower: true},
-      {label: "DMG/10", v1: s(p1, "ovl_dmg_10m"), v2: s(p2, "ovl_dmg_10m"), fmt: "1"},
-      {label: "ENG/10", v1: s(p1, "ovl_eng_10m"), v2: s(p2, "ovl_eng_10m"), fmt: "1"}
+      {label: "K/10", v1: s(p1, "ovl_kills_per_10m"), v2: s(p2, "ovl_kills_per_10m"), fmt: "1"},
+      {label: "D/10", v1: s(p1, "ovl_deaths_per_10m"), v2: s(p2, "ovl_deaths_per_10m"), fmt: "1", lower: true},
+      {label: "DMG/10", v1: s(p1, "ovl_damage_per_10m"), v2: s(p2, "ovl_damage_per_10m"), fmt: "1"},
+      {label: "ENG/10", v1: s(p1, "ovl_engagements_10m"), v2: s(p2, "ovl_engagements_10m"), fmt: "1"}
     ]}
   ];
 }
@@ -135,10 +126,10 @@ export function renderCompareImage(p1, p2) {
   // --- Measure required height ---
   var ROW_H = 30;
   var SECTION_H = 32;
-  var headerH = 40;        // branding bar
-  var playerH = 100;       // player names + KD hero
-  var colHeaderH = 36;     // stat column header
-  var verdictH = 72;       // verdict bar + footer
+  var headerH = 40;
+  var playerH = 100;
+  var colHeaderH = 36;
+  var verdictH = 72;
   var footerH = 36;
   var totalRows = 0;
   var totalSections = stats.length;
@@ -162,27 +153,27 @@ export function renderCompareImage(p1, p2) {
   fillRoundedRect(ctx, 0, 0, CARD_WIDTH, headerH, 0, "rgba(233,69,96,0.08)");
   drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
   drawText(ctx, "CDL 2026", CARD_WIDTH - CARD_PADDING, 15, {size: 10, weight: "400", color: TEXT_MUTED, align: "right"});
-  // divider
   ctx.fillStyle = "rgba(255,255,255,0.05)";
   ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
   y = headerH;
 
   // --- Player names + KD hero ---
   var mid = CARD_WIDTH / 2;
-  var colW = (CARD_WIDTH - 60) / 2;
 
-  // Player 1
-  drawText(ctx, p1.player_tag, mid - 20, y + 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "right"});
-  drawText(ctx, (p1.team_short || "") + (p1.role ? " · " + p1.role : ""), mid - 20, y + 34, {size: 10, weight: "400", color: TEXT_DIM, align: "right"});
+  // Use gamertag (v2) with fallback to player_tag (legacy)
+  var name1 = p1.gamertag || p1.player_tag || "P1";
+  var name2 = p2.gamertag || p2.player_tag || "P2";
+  var short1 = p1.team_abbr || p1.team_short || "";
+  var short2 = p2.team_abbr || p2.team_short || "";
 
-  // VS
+  drawText(ctx, name1, mid - 20, y + 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "right"});
+  drawText(ctx, short1 + (p1.role ? " · " + p1.role : ""), mid - 20, y + 34, {size: 10, weight: "400", color: TEXT_DIM, align: "right"});
+
   drawText(ctx, "VS", mid, y + 16, {size: 11, weight: "800", color: ACCENT, align: "center"});
 
-  // Player 2
-  drawText(ctx, p2.player_tag, mid + 20, y + 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "left"});
-  drawText(ctx, (p2.team_short || "") + (p2.role ? " · " + p2.role : ""), mid + 20, y + 34, {size: 10, weight: "400", color: TEXT_DIM, align: "left"});
+  drawText(ctx, name2, mid + 20, y + 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "left"});
+  drawText(ctx, short2 + (p2.role ? " · " + p2.role : ""), mid + 20, y + 34, {size: 10, weight: "400", color: TEXT_DIM, align: "left"});
 
-  // KD hero numbers
   var kd1 = s(p1, "kd"), kd2 = s(p2, "kd");
   drawText(ctx, kd1.toFixed(2), mid - 20, y + 56, {size: 32, weight: "900", color: kdColor(kd1), align: "right"});
   drawText(ctx, "K/D", mid, y + 68, {size: 9, weight: "400", color: TEXT_MUTED, align: "center"});
@@ -193,14 +184,13 @@ export function renderCompareImage(p1, p2) {
   // --- Column header ---
   ctx.fillStyle = "rgba(255,255,255,0.04)";
   ctx.fillRect(0, y, CARD_WIDTH, colHeaderH);
-  drawText(ctx, p1.player_tag, mid - 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "right"});
+  drawText(ctx, name1, mid - 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "right"});
   drawText(ctx, "stat", mid, y + 12, {size: 10, weight: "400", color: "rgba(255,255,255,0.3)", align: "center"});
-  drawText(ctx, p2.player_tag, mid + 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "left"});
+  drawText(ctx, name2, mid + 44, y + 11, {size: 11, weight: "700", color: ACCENT, align: "left"});
   y += colHeaderH;
 
   // --- Stat rows ---
   stats.forEach(function(group) {
-    // Section header
     drawText(ctx, group.section, CARD_PADDING, y + 10, {size: 9, weight: "700", color: ACCENT});
     y += SECTION_H;
 
@@ -210,7 +200,6 @@ export function renderCompareImage(p1, p2) {
       var c1 = scoreColor(row.v1, row.v2, row.lower);
       var c2 = scoreColor(row.v2, row.v1, row.lower);
 
-      // subtle divider
       ctx.fillStyle = "rgba(255,255,255,0.025)";
       ctx.fillRect(CARD_PADDING, y + ROW_H - 1, CARD_WIDTH - CARD_PADDING * 2, 1);
 
@@ -251,8 +240,9 @@ export function renderCompareImage(p1, p2) {
   drawText(ctx, "wins", CARD_PADDING + 34, y + 16, {size: 10, weight: "400", color: TEXT_DIM, align: "left"});
 
   if (winner) {
+    var winnerName = winner.gamertag || winner.player_tag || "?";
     drawText(ctx, "VERDICT", mid, y + 8, {size: 8, weight: "700", color: TEXT_DIM, align: "center"});
-    drawText(ctx, winner.player_tag, mid, y + 22, {size: 13, weight: "900", color: GREEN, align: "center"});
+    drawText(ctx, winnerName, mid, y + 22, {size: 13, weight: "900", color: GREEN, align: "center"});
   } else {
     drawText(ctx, "TIED", mid, y + 16, {size: 12, weight: "700", color: YELLOW, align: "center"});
   }
@@ -270,12 +260,13 @@ export function renderCompareImage(p1, p2) {
 
 /**
  * Generate a share image blob from the canvas and trigger share or download.
- * Returns a Promise that resolves when sharing/download is complete.
  */
 export function shareCompareImage(p1, p2) {
   return new Promise(function(resolve, reject) {
     try {
       var canvas = renderCompareImage(p1, p2);
+      var name1 = p1.gamertag || p1.player_tag || "P1";
+      var name2 = p2.gamertag || p2.player_tag || "P2";
       canvas.toBlob(function(blob) {
         if (!blob) {
           reject(new Error("Failed to generate image"));
@@ -285,12 +276,11 @@ export function shareCompareImage(p1, p2) {
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: (p1.player_tag || "P1") + " vs " + (p2.player_tag || "P2") + " — Barracks CDL Stats"
-          }).then(resolve).catch(resolve); // resolve even if user cancels
+            title: name1 + " vs " + name2 + " — Barracks CDL Stats"
+          }).then(resolve).catch(resolve);
         } else {
-          // Fallback: download
           var link = document.createElement("a");
-          link.download = "barracks-" + (p1.player_tag || "p1") + "-vs-" + (p2.player_tag || "p2") + ".png";
+          link.download = "barracks-" + name1 + "-vs-" + name2 + ".png";
           link.href = canvas.toDataURL("image/png");
           link.click();
           resolve();

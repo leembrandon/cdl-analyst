@@ -925,13 +925,6 @@ function CDLLineCheck(props) {
 
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
 
-  // Helper to build share URL for this line check
-  var buildLineUrl = function() {
-    var params = new URLSearchParams();
-    params.set("line", [player.gamertag || "", cat, direction, threshold, range].join(","));
-    return window.location.origin + window.location.pathname + "?" + params.toString();
-  };
-
   return <div>
     {/* Category pills */}
     <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
@@ -1043,15 +1036,16 @@ function CDLLineCheck(props) {
               hits: hits.length,
               total: dataPoints.length,
               hitPct: hitPct,
-              avg: avg,
-              shareUrl: buildLineUrl()
+              avg: avg
             });
           }).catch(function(e) { console.error("Share error:", e); }).finally(function() { setSharing(false); });
         }} disabled={sharing} className="px-4 py-2 rounded-xl text-xs font-bold transition-all" style={{background: sharing ? "rgba(233,69,96,0.2)" : "#e94560", color: "#fff", opacity: sharing ? 0.6 : 1}}>
           {sharing ? "Generating..." : "\uD83D\uDCE4 Share"}
         </button>
         <button onClick={function() {
-          var url = buildLineUrl();
+          var params = new URLSearchParams();
+          params.set("line", [player.gamertag || "", cat, direction, threshold, range].join(","));
+          var url = window.location.origin + window.location.pathname + "?" + params.toString();
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(function() { setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000); }).catch(function() { prompt("Copy this link:", url); });
           } else {

@@ -548,8 +548,9 @@ function PlayerCompare(props) {
   var handleShareImage = function() {
     if (!p1 || !p2 || sharing) return;
     setSharing(true);
+    var shareUrl = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(p1.gamertag) + "," + encodeURIComponent(p2.gamertag);
     import("./shareRenderer.js").then(function(mod) {
-      return mod.shareCompareImage(p1, p2);
+      return mod.shareCompareImage(p1, p2, shareUrl);
     }).then(function() { setSharing(false); }).catch(function() { setSharing(false); });
   };
 
@@ -1018,6 +1019,9 @@ function CDLLineCheck(props) {
         <button onClick={function() {
           if (sharing) return;
           setSharing(true);
+          var lineParams = new URLSearchParams();
+          lineParams.set("line", [player.gamertag || "", cat, direction, threshold, range].join(","));
+          var shareUrl = window.location.origin + window.location.pathname + "?" + lineParams.toString();
           import("./shareRenderer.js").then(function(mod) {
             return mod.shareLineCard({
               gamertag: player.gamertag,
@@ -1037,7 +1041,7 @@ function CDLLineCheck(props) {
               total: dataPoints.length,
               hitPct: hitPct,
               avg: avg
-            });
+            }, shareUrl);
           }).catch(function(e) { console.error("Share error:", e); }).finally(function() { setSharing(false); });
         }} disabled={sharing} className="px-4 py-2 rounded-xl text-xs font-bold transition-all" style={{background: sharing ? "rgba(233,69,96,0.2)" : "#e94560", color: "#fff", opacity: sharing ? 0.6 : 1}}>
           {sharing ? "Generating..." : "\uD83D\uDCE4 Share"}

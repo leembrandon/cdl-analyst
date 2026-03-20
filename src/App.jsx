@@ -236,10 +236,10 @@ function H2HRow(props) {
 }
 
 function PlayerRow(props) {
-  var p = props.p, onPlayerClick = props.onPlayerClick;
+  var p = props.p;
   var matches = s(p, "matches_played");
   return <div className="py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-    <div className="flex items-center gap-1 mb-1.5"><span className={"text-sm font-medium text-white" + (onPlayerClick ? " cursor-pointer hover:underline" : "")} onClick={function() { if (onPlayerClick) onPlayerClick(p); }}>{p.gamertag || p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{matches} matches</span></div>
+    <div className="flex items-center gap-1 mb-1.5"><span className="text-sm font-medium text-white">{p.gamertag || p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{matches} matches</span></div>
     <div className="grid grid-cols-4 gap-2 pl-1">
       <div><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div></div>
       <div><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-semibold">{s(p, "hp_kills_per_10m").toFixed(1)}</div></div>
@@ -250,12 +250,11 @@ function PlayerRow(props) {
 }
 
 function TeamRosterBlock(props) {
-  return <div><div className="flex items-center gap-2 mb-2 mt-1"><div className="w-1 h-4 rounded" style={{background: props.teamColor}} /><span className="text-xs font-bold text-white uppercase tracking-wider">{props.teamName}</span></div>{(props.roster || []).map(function(p) { return <PlayerRow key={p.player_id} p={p} onPlayerClick={props.onPlayerClick} />; })}</div>;
+  return <div><div className="flex items-center gap-2 mb-2 mt-1"><div className="w-1 h-4 rounded" style={{background: props.teamColor}} /><span className="text-xs font-bold text-white uppercase tracking-wider">{props.teamName}</span></div>{(props.roster || []).map(function(p) { return <PlayerRow key={p.player_id} p={p} />; })}</div>;
 }
 
 function WhosHot(props) {
   var [cat, setCat] = useState("kd");
-  var onPlayerClick = props.onPlayerClick;
   var list = cat === "kd" ? props.topKd : cat === "hp" ? props.topHpK : props.topSndKpr;
   var valFn = cat === "kd" ? function(p) { return s(p, "kd").toFixed(2); } : cat === "hp" ? function(p) { return s(p, "hp_kills_per_10m").toFixed(1); } : function(p) { return s(p, "snd_kills_per_round").toFixed(2); };
   var labelMap = {kd: "K/D", hp: "HP K/10m", snd: "SnD KPR"};
@@ -264,7 +263,7 @@ function WhosHot(props) {
       <span className="text-sm font-bold text-white">Top performers</span>
       <div className="flex gap-1">{["kd", "hp", "snd"].map(function(c) { return <button key={c} onClick={function() { setCat(c); }} className="px-2 py-1 rounded text-xs font-semibold" style={{background: cat === c ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: cat === c ? "#e94560" : "#666"}}>{labelMap[c]}</button>; })}</div>
     </div>
-    {list.map(function(p, i) { return <div key={p.player_id} className="flex items-center gap-3 py-1.5 cursor-pointer hover:bg-white/5 rounded px-1 -mx-1" onClick={function() { if (onPlayerClick) onPlayerClick(p); }} style={{borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none"}}>
+    {list.map(function(p, i) { return <div key={p.player_id} className="flex items-center gap-3 py-1.5" style={{borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none"}}>
       <span className="text-xs font-bold w-5" style={{color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
       <span className="text-sm font-medium text-white flex-1">{p.gamertag}</span>
       <span className="text-xs opacity-40">{p.team_abbr || p.team_short}</span>
@@ -291,7 +290,7 @@ function PowerRankings(props) {
 }
 
 function MatchCard(props) {
-  var mu = props.mu, onTeamClick = props.onTeamClick, onPlayerClick = props.onPlayerClick;
+  var mu = props.mu, onTeamClick = props.onTeamClick;
   var [expanded, setExpanded] = useState(false);
   var t1S = (mu.t1 && mu.t1.name_short) || "?";
   var t2S = (mu.t2 && mu.t2.name_short) || "?";
@@ -326,16 +325,16 @@ function MatchCard(props) {
       </div>
       <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
         <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Player stats</div>
-        <TeamRosterBlock teamName={t1S} teamColor={mu.t1Stats && mu.t1Stats.team_color} roster={mu.t1Roster || []} onPlayerClick={onPlayerClick} />
+        <TeamRosterBlock teamName={t1S} teamColor={mu.t1Stats && mu.t1Stats.team_color} roster={mu.t1Roster || []} />
         <div className="mt-3" />
-        <TeamRosterBlock teamName={t2S} teamColor={mu.t2Stats && mu.t2Stats.team_color} roster={mu.t2Roster || []} onPlayerClick={onPlayerClick} />
+        <TeamRosterBlock teamName={t2S} teamColor={mu.t2Stats && mu.t2Stats.team_color} roster={mu.t2Roster || []} />
       </div>
     </div>}
   </div>;
 }
 
 function TeamPage(props) {
-  var tid = props.tid, analysis = props.analysis, onBack = props.onBack, onPlayerClick = props.onPlayerClick;
+  var tid = props.tid, analysis = props.analysis, onBack = props.onBack;
   var ts = analysis.teamStats[tid] || {};
   var standing = analysis.standingsLookup[tid] || {};
   var major = analysis.majorStandingsLookup[tid] || {};
@@ -388,7 +387,7 @@ function TeamPage(props) {
         })}
       </div>
     </div>
-    <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Roster</div>{roster.map(function(p) { return <PlayerRow key={p.player_id} p={p} onPlayerClick={onPlayerClick} />; })}{roster.length === 0 && <p className="text-sm opacity-40">No player stats available</p>}</div>
+    <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Roster</div>{roster.map(function(p) { return <PlayerRow key={p.player_id} p={p} />; })}{roster.length === 0 && <p className="text-sm opacity-40">No player stats available</p>}</div>
     <div><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Upcoming schedule</div>
       {teamMatches.length === 0 && <p className="text-sm opacity-40">No upcoming matches</p>}
       {teamMatches.map(function(mu) {
@@ -485,226 +484,6 @@ function PlayerSearch(props) {
     </div>}
   </div>;
 }
-
-function PlayerProfile(props) {
-  var player = props.player, analysis = props.analysis, onBack = props.onBack;
-  var onCompare = props.onCompare, onLines = props.onLines, onTeamClick = props.onTeamClick;
-  var [seriesLogs, setSeriesLogs] = useState([]);
-  var [mapLogs, setMapLogs] = useState([]);
-  var [loading, setLoading] = useState(true);
-  var [expandedMatch, setExpandedMatch] = useState(null);
-  var [showAllMatches, setShowAllMatches] = useState(false);
-
-  useEffect(function() {
-    setLoading(true);
-    setExpandedMatch(null);
-    setShowAllMatches(false);
-    Promise.all([
-      fetchPlayerMatchStats(player.player_id),
-      fetchPlayerMapStats(player.player_id)
-    ]).then(function(res) {
-      setSeriesLogs(res[0] || []);
-      setMapLogs(res[1] || []);
-    }).catch(function(e) { console.error("Failed to load match history:", e); })
-    .finally(function() { setLoading(false); });
-  }, [player.player_id]);
-
-  // Update URL for deep linking
-  useEffect(function() {
-    var url = window.location.origin + window.location.pathname + "?player=" + encodeURIComponent(player.gamertag);
-    window.history.replaceState(null, "", url);
-    return function() { window.history.replaceState(null, "", window.location.pathname); };
-  }, [player.gamertag]);
-
-  var teamColor = player.team_color || "#888";
-
-  // Group map logs by match_id for expandable rows
-  var mapsByMatch = {};
-  mapLogs.forEach(function(m) {
-    var mid = m.match_id;
-    if (!mapsByMatch[mid]) mapsByMatch[mid] = [];
-    mapsByMatch[mid].push(m);
-  });
-
-  // Compute series-level +/- and damage from map logs
-  var seriesExtras = {};
-  Object.keys(mapsByMatch).forEach(function(mid) {
-    var maps = mapsByMatch[mid];
-    var totalDmg = 0, totalKills = 0, totalDeaths = 0;
-    maps.forEach(function(m) {
-      totalDmg += (m.damage || 0);
-      totalKills += (m.kills || 0);
-      totalDeaths += (m.deaths || 0);
-    });
-    seriesExtras[mid] = { damage: totalDmg, kills: totalKills, deaths: totalDeaths, plusMinus: totalKills - totalDeaths, mapCount: maps.length };
-  });
-
-  var visibleMatches = showAllMatches ? seriesLogs : seriesLogs.slice(0, 10);
-
-  // Calculate recent form (last 5 series)
-  var recent5 = seriesLogs.slice(0, 5);
-  var recentKills = 0, recentDeaths = 0;
-  recent5.forEach(function(m) { recentKills += (m.kills || 0); recentDeaths += (m.deaths || 0); });
-  var recentKd = recentDeaths > 0 ? recentKills / recentDeaths : recentKills;
-
-  return <div>
-    {/* Back button */}
-    <button onClick={onBack} className="text-sm mb-4 hover:underline" style={{color: "#e94560"}}>{"\u2190"} back</button>
-
-    {/* Player header */}
-    <div className="flex items-center gap-4 mb-5 pb-5" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="w-1.5 h-12 rounded" style={{background: teamColor}} />
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-black text-white">{player.gamertag}</h2>
-          <RoleBadge role={player.role} />
-        </div>
-        <p className="text-sm opacity-50 cursor-pointer hover:opacity-80" onClick={function() { if (player.team_id && onTeamClick) onTeamClick(player.team_id); }}>{player.team_name} ({player.team_abbr || player.team_short})</p>
-      </div>
-      <div className="text-center">
-        <div className="text-2xl font-black" style={{color: kdColor(s(player, "kd"))}}>{s(player, "kd").toFixed(2)}</div>
-        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>K/D</div>
-      </div>
-    </div>
-
-    {/* Season stats grid */}
-    <div className="rounded-lg p-3 mb-4" style={{background: "rgba(255,255,255,0.03)"}}>
-      <div className="grid grid-cols-3 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-        <Stat label="Overall K/D" value={s(player, "kd")} />
-        <Stat label="DMG/10m" value={s(player, "dmg_per_10m")} fmt="0.0" />
-        <Stat label="FB%" value={s(player, "first_blood_pct") * 100} fmt="0.0" />
-      </div>
-      <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-        <Stat label="HP K/D" value={s(player, "hp_kd")} />
-        <Stat label="K/10" value={s(player, "hp_kills_per_10m")} fmt="0.0" />
-        <Stat label="D/10" value={s(player, "hp_deaths_per_10m")} fmt="0.0" />
-        <Stat label="DMG/10" value={s(player, "hp_damage_per_10m")} fmt="0.0" />
-        <Stat label="ENG/10" value={s(player, "hp_engagements_10m")} fmt="0.0" />
-      </div>
-      <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-        <Stat label="SnD K/D" value={s(player, "snd_kd")} />
-        <Stat label="KPR" value={s(player, "snd_kills_per_round")} />
-        <Stat label="DPR" value={s(player, "snd_deaths_per_round")} />
-        <Stat label="FB%" value={s(player, "first_blood_pct") * 100} fmt="0.0" />
-      </div>
-      <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Overload</div>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <Stat label="OVL K/D" value={s(player, "ovl_kd")} />
-        <Stat label="K/10" value={s(player, "ovl_kills_per_10m")} fmt="0.0" />
-        <Stat label="D/10" value={s(player, "ovl_deaths_per_10m")} fmt="0.0" />
-        <Stat label="DMG/10" value={s(player, "ovl_damage_per_10m")} fmt="0.0" />
-        <Stat label="ENG/10" value={s(player, "ovl_engagements_10m")} fmt="0.0" />
-      </div>
-    </div>
-
-    {/* Quick actions */}
-    <div className="flex gap-2 mb-5">
-      {onCompare && <button onClick={function() { onCompare(player); }} className="flex-1 py-2 rounded-lg text-xs font-bold" style={{background: "rgba(233,69,96,0.15)", color: "#e94560", border: "1px solid rgba(233,69,96,0.3)"}}>Compare</button>}
-      {onLines && <button onClick={function() { onLines(player); }} className="flex-1 py-2 rounded-lg text-xs font-bold" style={{background: "rgba(82,183,136,0.15)", color: "#52b788", border: "1px solid rgba(82,183,136,0.3)"}}>Lines</button>}
-    </div>
-
-    {/* Recent form badge */}
-    {recent5.length > 0 && <div className="flex items-center gap-3 mb-4 p-3 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
-      <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", fontWeight: 700}}>Last {recent5.length}</div>
-      <div className="flex gap-1">
-        {recent5.map(function(m, i) {
-          return <div key={i} className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold" style={{background: m.won_series ? "rgba(82,183,136,0.2)" : "rgba(255,107,107,0.2)", color: m.won_series ? "#52b788" : "#ff6b6b", fontSize: "10px"}}>{m.won_series ? "W" : "L"}</div>;
-        })}
-      </div>
-      <div className="ml-auto text-sm font-bold" style={{color: kdColor(recentKd)}}>{recentKd.toFixed(2)} <span style={{fontSize: "10px", color: "#555"}}>K/D</span></div>
-    </div>}
-
-    {/* Match history */}
-    <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Match history</div>
-
-    {loading && <div className="py-6 text-center"><div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#52b788", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading match history...</p></div>}
-
-    {!loading && seriesLogs.length === 0 && <p className="text-sm opacity-40">No match history available</p>}
-
-    {!loading && seriesLogs.length > 0 && <div>
-      {/* Table header */}
-      <div className="grid items-center py-2 px-2 rounded-t-lg" style={{gridTemplateColumns: "1fr 52px 52px 52px 52px 36px", background: "rgba(255,255,255,0.04)"}}>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700}}>OPPONENT</div>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700, textAlign: "center"}}>K/D</div>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700, textAlign: "center"}}>+/-</div>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700, textAlign: "center"}}>DMG</div>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700, textAlign: "center"}}>K</div>
-        <div style={{fontSize: "9px", color: "#555", fontWeight: 700, textAlign: "center"}}>W/L</div>
-      </div>
-
-      {visibleMatches.map(function(m, i) {
-        var mid = m.match_id;
-        var kd = m.deaths > 0 ? (m.kills / m.deaths) : m.kills;
-        var extra = seriesExtras[mid] || {};
-        var pm = extra.plusMinus || (m.kills - m.deaths);
-        var dmg = extra.damage || 0;
-        var isExpanded = expandedMatch === mid;
-        var maps = mapsByMatch[mid] || [];
-
-        return <div key={mid || i}>
-          {/* Series row */}
-          <div className="grid items-center py-2.5 px-2 cursor-pointer hover:bg-white/5 transition-colors" onClick={function() { setExpandedMatch(isExpanded ? null : mid); }} style={{gridTemplateColumns: "1fr 52px 52px 52px 52px 36px", background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-            <div>
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-4 rounded-sm" style={{background: m.opp_team_color || "#888"}} />
-                <span className="text-sm font-semibold" style={{color: m.opp_team_color || "#888"}}>{m.opp_team_abbr || "?"}</span>
-                <span style={{fontSize: "10px", color: "#444"}}>{maps.length > 0 ? maps.length + " maps" : ""}</span>
-              </div>
-              <div style={{fontSize: "10px", color: "#444", marginTop: "2px", paddingLeft: "12px"}}>{utcToET(m.scheduled_at)}</div>
-            </div>
-            <div className="text-center text-sm font-bold" style={{color: kdColor(kd)}}>{kd.toFixed(2)}</div>
-            <div className="text-center text-sm font-bold" style={{color: pm > 0 ? "#52b788" : pm < 0 ? "#ff6b6b" : "#ffd166"}}>{pm > 0 ? "+" : ""}{pm}</div>
-            <div className="text-center text-sm" style={{color: "#aaa"}}>{dmg > 0 ? (dmg >= 10000 ? (dmg / 1000).toFixed(1) + "k" : dmg) : "-"}</div>
-            <div className="text-center text-sm" style={{color: "#aaa"}}>{m.kills || extra.kills || 0}</div>
-            <div className="text-center text-xs font-bold" style={{color: m.won_series ? "#52b788" : "#ff6b6b"}}>{m.won_series ? "W" : "L"}</div>
-          </div>
-
-          {/* Expanded map details */}
-          {isExpanded && maps.length > 0 && <div style={{background: "rgba(233,69,96,0.03)", borderLeft: "2px solid rgba(233,69,96,0.3)", marginLeft: "8px", borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-            {/* Map header */}
-            <div className="grid items-center py-1.5 px-3" style={{gridTemplateColumns: "1fr 48px 48px 48px 48px 48px 36px", background: "rgba(255,255,255,0.03)"}}>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700}}>MAP</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>K</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>D</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>K/D</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>+/-</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>DMG</div>
-              <div style={{fontSize: "8px", color: "#555", fontWeight: 700, textAlign: "center"}}>W/L</div>
-            </div>
-            {maps.map(function(mp, j) {
-              var mapKd = mp.deaths > 0 ? (mp.kills / mp.deaths) : mp.kills;
-              var mapPm = (mp.kills || 0) - (mp.deaths || 0);
-              var modeBadge = mp.mode_name === "Hardpoint" ? "HP" : mp.mode_name === "Search and Destroy" ? "SnD" : mp.mode_short || "?";
-              var modeColor = mp.mode_name === "Hardpoint" ? "#e94560" : mp.mode_name === "Search and Destroy" ? "#53a8b6" : "#ffd166";
-              return <div key={j} className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr 48px 48px 48px 48px 48px 36px", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-                <div>
-                  <span className="text-xs font-bold px-1.5 py-0.5 rounded mr-1.5" style={{background: "rgba(255,255,255,0.06)", color: modeColor, fontSize: "9px"}}>{modeBadge}</span>
-                  <span className="text-xs" style={{color: "#888"}}>{mp.map_name || "Map " + mp.map_number}</span>
-                </div>
-                <div className="text-center text-xs font-semibold" style={{color: "#ccc"}}>{mp.kills || 0}</div>
-                <div className="text-center text-xs" style={{color: "#888"}}>{mp.deaths || 0}</div>
-                <div className="text-center text-xs font-bold" style={{color: kdColor(mapKd)}}>{mapKd.toFixed(2)}</div>
-                <div className="text-center text-xs font-bold" style={{color: mapPm > 0 ? "#52b788" : mapPm < 0 ? "#ff6b6b" : "#ffd166"}}>{mapPm > 0 ? "+" : ""}{mapPm}</div>
-                <div className="text-center text-xs" style={{color: "#aaa"}}>{mp.damage || "-"}</div>
-                <div className="text-center text-xs font-bold" style={{color: mp.won_map ? "#52b788" : "#ff6b6b"}}>{mp.won_map ? "W" : "L"}</div>
-              </div>;
-            })}
-          </div>}
-        </div>;
-      })}
-
-      {/* Show more / less */}
-      {seriesLogs.length > 10 && <div className="text-center mt-3">
-        <button onClick={function() { setShowAllMatches(!showAllMatches); }} className="text-xs font-bold px-4 py-2 rounded-lg" style={{background: "rgba(255,255,255,0.05)", color: "#888"}}>
-          {showAllMatches ? "Show less" : "Show all " + seriesLogs.length + " series"}
-        </button>
-      </div>}
-    </div>}
-  </div>;
-}
-
 
 function CompareRow(props) {
   var label = props.label, v1 = props.v1, v2 = props.v2, fmt = props.fmt || "0.00";
@@ -916,10 +695,9 @@ function PlayerCompare(props) {
 }
 
 function PlayerLeaderboard(props) {
-  var analysis = props.analysis, onPlayerClick = props.onPlayerClick;
+  var analysis = props.analysis;
   var [sortBy, setSortBy] = useState("kd");
   var [roleFilter, setRoleFilter] = useState("All");
-  var [searchQ, setSearchQ] = useState("");
 
   var sortOptions = [
     {key: "kd", label: "K/D"},
@@ -950,15 +728,8 @@ function PlayerLeaderboard(props) {
   };
 
   var filtered = analysis.playerStats.filter(function(p) {
-    if (roleFilter !== "All" && p.role !== roleFilter) return false;
-    if (searchQ.length >= 2) {
-      var q = searchQ.toLowerCase();
-      var nameMatch = p.gamertag && p.gamertag.toLowerCase().indexOf(q) !== -1;
-      var teamMatch = p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1;
-      var abbrMatch = (p.team_abbr || p.team_short || "").toLowerCase().indexOf(q) !== -1;
-      if (!nameMatch && !teamMatch && !abbrMatch) return false;
-    }
-    return true;
+    if (roleFilter === "All") return true;
+    return p.role === roleFilter;
   });
   var sorted = filtered.slice().sort(function(a, b) { return s(b, sortBy) - s(a, sortBy); });
 
@@ -977,7 +748,6 @@ function PlayerLeaderboard(props) {
   sortOptions.forEach(function(opt) { if (opt.key === sortBy) sortLabel = opt.label; });
 
   return <div>
-    <input type="text" value={searchQ} onChange={function(e) { setSearchQ(e.target.value); }} placeholder="Search player or team..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none mb-3" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
     <div className="flex flex-wrap gap-1.5 mb-3">
       {sortOptions.map(function(opt) {
         return <button key={opt.key} onClick={function() { setSortBy(opt.key); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: sortBy === opt.key ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.05)", color: sortBy === opt.key ? "#e94560" : "#666"}}>{opt.label}</button>;
@@ -992,7 +762,7 @@ function PlayerLeaderboard(props) {
       var matches = s(p, "matches_played");
       var mainVal = s(p, sortBy);
       var mainColor = sortBy.indexOf("kd") !== -1 || sortBy === "kd" ? kdColor(mainVal) : mainVal > 0 ? "#52b788" : "#888";
-      return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors" onClick={function() { if (onPlayerClick) onPlayerClick(p); }} style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+      return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
         <span className="text-xs font-bold flex-shrink-0" style={{width: "24px", textAlign: "center", color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span><RoleBadge role={p.role} /></div>
@@ -1418,48 +1188,20 @@ function CDLLinesTab(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines"];
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
-  var playerParam = urlParams.get("player");
-  var initialTab = compareParam ? "Compare" : lineParam ? "Lines" : playerParam ? "Players" : "Schedule";
-  var [tab, setTab] = useState(initialTab);
+  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : "Schedule");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
   var [teamPageId, setTeamPageId] = useState(null);
-  var [profilePlayer, setProfilePlayer] = useState(null);
 
-  var openTeam = function(tid) { setTeamPageId(tid); setProfilePlayer(null); setTab("Teams"); };
+  var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
   var closeTeam = function() { setTeamPageId(null); };
-
-  var openPlayer = function(player) {
-    setProfilePlayer(player);
-    setTab("Players");
-    setTeamPageId(null);
-  };
-  var closePlayer = function() {
-    setProfilePlayer(null);
-    window.history.replaceState(null, "", window.location.pathname);
-  };
-
-  // Navigate to Compare with a player pre-filled
-  var goCompare = function(player) {
-    setProfilePlayer(null);
-    setTab("Compare");
-    // The compare param will pre-fill player 1
-    window.history.replaceState(null, "", window.location.pathname + "?compare=" + encodeURIComponent(player.gamertag) + ",");
-  };
-
-  // Navigate to Lines with a player pre-filled
-  var goLines = function(player) {
-    setProfilePlayer(null);
-    setTab("Lines");
-    window.history.replaceState(null, "", window.location.pathname + "?line=" + encodeURIComponent(player.gamertag) + ",,,");
-  };
 
   useEffect(function() {
     (async function() {
@@ -1467,14 +1209,7 @@ export default function App() {
         setLoading(true);
         setError(null);
         var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID)]);
-        var a = buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]);
-        setAnalysis(a);
-        // Resolve ?player= deep link
-        if (playerParam && a.playerStats) {
-          var pLower = playerParam.toLowerCase();
-          var found = a.playerStats.find(function(p) { return p.gamertag && p.gamertag.toLowerCase() === pLower; });
-          if (found) setProfilePlayer(found);
-        }
+        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]));
       } catch(e) {
         console.error(e);
         setError(e.message);
@@ -1494,29 +1229,28 @@ export default function App() {
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>
-        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); if (t !== "Players") setProfilePlayer(null); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
+        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
       {tab === "Schedule" && <div className="space-y-3">
-        <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} onPlayerClick={openPlayer} />
+        <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
         <h2 className="text-lg font-bold text-white mb-4">Upcoming matches</h2>
-        {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} onPlayerClick={openPlayer} />; })}
+        {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
         {analysis.matchups.length === 0 && <p className="opacity-40">No upcoming matches with known teams</p>}
       </div>}
-      {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} onTeamClick={openTeam} /></div>}
+      {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
       {tab === "Teams" && <div>
-        {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} onPlayerClick={openPlayer} /> : <div>
+        {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} /> : <div>
           <h2 className="text-lg font-bold text-white mb-1">CDL standings</h2>
           <p className="text-xs opacity-40 mb-4">Ordered by {majorName} standings</p>
           <TeamsGrid analysis={analysis} onTeamClick={setTeamPageId} />
         </div>}
       </div>}
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
-      {tab === "Players" && <div>
-        {profilePlayer ? <PlayerProfile player={profilePlayer} analysis={analysis} onBack={closePlayer} onCompare={goCompare} onLines={goLines} onTeamClick={openTeam} /> : <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} onPlayerClick={openPlayer} /></div>}
-      </div>}
-      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} initialLine={lineParam} /></div>}
+      {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
+      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
+      {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>
   </div>;

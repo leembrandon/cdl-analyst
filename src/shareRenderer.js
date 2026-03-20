@@ -261,7 +261,7 @@ export function renderCompareImage(p1, p2) {
 /**
  * Generate a share image blob from the canvas and trigger share or download.
  */
-export function shareCompareImage(p1, p2) {
+export function shareCompareImage(p1, p2, shareUrl) {
   return new Promise(function(resolve, reject) {
     try {
       var canvas = renderCompareImage(p1, p2);
@@ -276,7 +276,8 @@ export function shareCompareImage(p1, p2) {
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: name1 + " vs " + name2 + " — Barracks CDL Stats"
+            title: name1 + " vs " + name2 + " — Barracks CDL Stats",
+            url: shareUrl || undefined
           }).then(resolve).catch(resolve);
         } else {
           var link = document.createElement("a");
@@ -494,7 +495,7 @@ export function renderLineCard(data) {
 /**
  * Share or download a line check card image.
  */
-export function shareLineCard(data) {
+export function shareLineCard(data, shareUrl) {
   return new Promise(function(resolve, reject) {
     try {
       var canvas = renderLineCard(data);
@@ -510,7 +511,8 @@ export function shareLineCard(data) {
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: name + " " + (data.direction || "over") + " " + (data.threshold || "") + " " + (data.catLabel || "") + " — Barracks"
+            title: name + " " + (data.direction || "over") + " " + (data.threshold || "") + " " + (data.catLabel || "") + " — Barracks",
+            url: shareUrl || undefined
           }).then(resolve).catch(resolve);
         } else {
           var link = document.createElement("a");

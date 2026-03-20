@@ -1,7 +1,5 @@
 import { ImageResponse } from '@vercel/og';
 
-export const config = { runtime: 'edge' };
-
 // ─── COLORS ──────────────────────────────────────────────────
 const BG = '#0d0d1a';
 const SURFACE = '#111128';

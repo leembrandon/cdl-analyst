@@ -62,6 +62,16 @@ async function fetchStandings(eventId) {
   return mySupaFetch("standings_view", "select=*&season_id=eq.2026&" + filter + "&order=rank.asc");
 }
 
+async function fetchPlayerMatchStats(playerId) {
+  // Fetch per-series stats from match_stats_view (for Maps 1-3 Kills + Series K/D)
+  return mySupaFetch("match_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc&limit=30");
+}
+
+async function fetchPlayerMapStats(playerId) {
+  // Fetch per-map stats from map_stats_view (for Map 1/2/3 individual lines)
+  return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc,map_number.asc&limit=150");
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────
 
 var s = function(obj, key, def) { if (def === undefined) def = 0; return (obj && obj[key] != null) ? obj[key] : def; };
@@ -768,7 +778,348 @@ function PlayerLeaderboard(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Search"];
+// ─── LINES TAB (CDL PROP LINE CHECK) ────────────────────────
+// Mode name constants — the view returns these from the modes table
+var MODE_HP = "Hardpoint";
+var MODE_SND = "Search & Destroy";
+var MODE_OVL = "Overload";
+
+// Line categories matching how books structure CDL props
+var LINE_CATS = [
+  {key: "map1", label: "Map 1 Kills", sub: "Hardpoint", mode: MODE_HP, field: "kills", source: "map"},
+  {key: "map2", label: "Map 2 Kills", sub: "Search & Destroy", mode: MODE_SND, field: "kills", source: "map"},
+  {key: "map3", label: "Map 3 Kills", sub: "Overload", mode: MODE_OVL, field: "kills", source: "map"},
+  {key: "m13kills", label: "Maps 1-3 Kills", sub: "First 3 maps only", mode: null, field: "kills", source: "combo"},
+  {key: "serieskd", label: "Series K/D", sub: "Full series", mode: null, field: "kd", source: "series"},
+];
+
+function CDLLineCheck(props) {
+  var player = props.player;
+  var [cat, setCat] = useState("map1");
+  var [threshold, setThreshold] = useState("");
+  var [direction, setDirection] = useState("over");
+  var [range, setRange] = useState(10);
+  var [loading, setLoading] = useState(true);
+  var [mapLogs, setMapLogs] = useState([]);
+  var [seriesLogs, setSeriesLogs] = useState([]);
+
+  useEffect(function() {
+    (async function() {
+      try {
+        setLoading(true);
+        var results = await Promise.all([
+          fetchPlayerMapStats(player.player_id),
+          fetchPlayerMatchStats(player.player_id)
+        ]);
+        setMapLogs(results[0] || []);
+        setSeriesLogs(results[1] || []);
+      } catch(e) { console.error(e); setMapLogs([]); setSeriesLogs([]); }
+      finally { setLoading(false); }
+    })();
+  }, [player.player_id]);
+
+  if (loading) return <div className="py-6 text-center"><div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#52b788", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading match history...</p></div>;
+
+  var activeCat = null;
+  LINE_CATS.forEach(function(c) { if (c.key === cat) activeCat = c; });
+  if (!activeCat) activeCat = LINE_CATS[0];
+
+  // Build the data points based on category
+  var dataPoints = [];
+  if (activeCat.source === "map") {
+    // Filter map_stats_view by mode name, grab kills per map
+    var filtered = mapLogs.filter(function(m) { return m.mode_name === activeCat.mode; });
+    // Each row is one map occurrence — already sorted by date desc
+    dataPoints = filtered.slice(0, range).map(function(m) {
+      return {
+        value: Number(m[activeCat.field]) || 0,
+        opp: m.opp_team_abbr || "?",
+        oppColor: m.opp_team_color || "#888",
+        date: m.scheduled_at,
+        mapName: m.map_name || "",
+        won: m.won_map,
+        wonSeries: m.won_series,
+        kills: m.kills || 0,
+        deaths: m.deaths || 0,
+        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills
+      };
+    });
+  } else if (activeCat.source === "combo") {
+    // Maps 1-3 Kills: sum kills from map_stats_view where map_number <= 3, grouped per match
+    var onlyFirst3 = mapLogs.filter(function(m) { return m.map_number <= 3; });
+    // Group by match_id and sum kills
+    var matchGroups = {};
+    var matchOrder = [];
+    onlyFirst3.forEach(function(m) {
+      var mid = m.match_id;
+      if (!matchGroups[mid]) {
+        matchGroups[mid] = {kills: 0, deaths: 0, opp: m.opp_team_abbr || "?", oppColor: m.opp_team_color || "#888", date: m.scheduled_at, wonSeries: m.won_series, mapsInGroup: 0};
+        matchOrder.push(mid);
+      }
+      matchGroups[mid].kills += (m.kills || 0);
+      matchGroups[mid].deaths += (m.deaths || 0);
+      matchGroups[mid].mapsInGroup += 1;
+    });
+    // Only include matches that had all 3 maps
+    dataPoints = matchOrder.filter(function(mid) {
+      return matchGroups[mid].mapsInGroup >= 3;
+    }).slice(0, range).map(function(mid) {
+      var g = matchGroups[mid];
+      return {
+        value: g.kills,
+        opp: g.opp,
+        oppColor: g.oppColor,
+        date: g.date,
+        mapName: "",
+        won: g.wonSeries,
+        wonSeries: g.wonSeries,
+        kills: g.kills,
+        deaths: g.deaths,
+        kd: g.deaths > 0 ? (g.kills / g.deaths) : g.kills
+      };
+    });
+  } else {
+    // Series-level: use match_stats_view (full series K/D)
+    var sliced = seriesLogs.slice(0, range);
+    dataPoints = sliced.map(function(m) {
+      var val;
+      if (activeCat.field === "kd") {
+        val = m.deaths > 0 ? (m.kills / m.deaths) : m.kills;
+      } else {
+        val = Number(m[activeCat.field]) || 0;
+      }
+      return {
+        value: val,
+        opp: m.opp_team_abbr || "?",
+        oppColor: m.opp_team_color || "#888",
+        date: m.scheduled_at,
+        mapName: "",
+        won: m.won_series,
+        wonSeries: m.won_series,
+        kills: m.kills || 0,
+        deaths: m.deaths || 0,
+        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills
+      };
+    });
+  }
+
+  var threshNum = Number(threshold);
+  var hasThreshold = threshold !== "" && !isNaN(threshNum);
+  var isKd = activeCat.field === "kd";
+
+  var hits = hasThreshold ? dataPoints.filter(function(d) {
+    return direction === "over" ? d.value >= threshNum : d.value < threshNum;
+  }) : [];
+  var hitPct = hasThreshold && dataPoints.length > 0 ? (hits.length / dataPoints.length * 100) : 0;
+
+  // Average
+  var avg = 0;
+  if (dataPoints.length > 0) {
+    var sum = 0;
+    dataPoints.forEach(function(d) { sum += d.value; });
+    avg = sum / dataPoints.length;
+  }
+
+  var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
+
+  return <div>
+    {/* Category pills */}
+    <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {LINE_CATS.map(function(c) {
+          var isActive = cat === c.key;
+          return <button key={c.key} onClick={function() { setCat(c.key); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+            background: isActive ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.04)",
+            color: isActive ? "#52b788" : "#666"
+          }}>
+            <span>{c.label}</span>
+          </button>;
+        })}
+      </div>
+
+      {/* Controls row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex rounded-lg overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.08)"}}>
+          <button onClick={function() { setDirection("over"); }} className="px-3 py-2 text-xs font-bold transition-all" style={{background: direction === "over" ? "rgba(82,183,136,0.2)" : "transparent", color: direction === "over" ? "#52b788" : "#666"}}>Over</button>
+          <button onClick={function() { setDirection("under"); }} className="px-3 py-2 text-xs font-bold transition-all" style={{background: direction === "under" ? "rgba(255,107,107,0.2)" : "transparent", color: direction === "under" ? "#ff6b6b" : "#666"}}>Under</button>
+        </div>
+        <input type="number" inputMode="decimal" step={isKd ? "0.01" : "1"} value={threshold} onChange={function(e) { setThreshold(e.target.value); }} placeholder={isKd ? "1.00" : "Line"} className="p-2 rounded-lg text-white text-sm text-center outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", width: "72px", fontSize: "16px"}} />
+        <div className="flex rounded-lg overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.08)"}}>
+          {[5, 10, 15, 20].map(function(n) {
+            return <button key={n} onClick={function() { setRange(n); }} className="px-2.5 py-2 text-xs font-bold transition-all" style={{background: range === n ? "rgba(233,69,96,0.15)" : "transparent", color: range === n ? "#e94560" : "#666"}}>L{n}</button>;
+          })}
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <span style={{fontSize: "10px", color: "#444"}}>{dataPoints.length} {activeCat.source === "map" ? "maps" : "series"} found</span>
+        {activeCat.sub && <span style={{fontSize: "10px", color: "#555", background: "rgba(255,255,255,0.04)", padding: "2px 6px", borderRadius: "4px"}}>{activeCat.sub}</span>}
+      </div>
+    </div>
+
+    {/* Result card */}
+    {hasThreshold && dataPoints.length > 0 && <div>
+      <div className="rounded-xl p-4 mb-3" style={{
+        background: hitPct >= 60 ? "rgba(82,183,136,0.06)" : hitPct >= 40 ? "rgba(255,209,102,0.06)" : "rgba(255,107,107,0.06)",
+        border: "1px solid " + (hitPct >= 60 ? "rgba(82,183,136,0.15)" : hitPct >= 40 ? "rgba(255,209,102,0.15)" : "rgba(255,107,107,0.15)")
+      }}>
+        {/* Player header */}
+        <div className="flex items-center gap-3 mb-3 pb-3" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-white truncate">{player.gamertag}</span><RoleBadge role={player.role} /></div>
+            <span style={{fontSize: "11px", color: "#555"}}>{player.team_abbr || player.team_short}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(player, "kd"))}}>{s(player, "kd").toFixed(2)}</div></div>
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(player, "hp_kills_per_10m").toFixed(1)}</div></div>
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>SnD KPR</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(player, "snd_kills_per_round").toFixed(2)}</div></div>
+          </div>
+        </div>
+
+        {/* Hit rate */}
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-bold uppercase" style={{color: hitColor}}>{direction} {isKd ? threshNum.toFixed(2) : threshNum} {activeCat.label}</div>
+            <div className="text-xs" style={{color: "#555"}}>Last {dataPoints.length} {activeCat.source === "map" ? "maps" : "series"}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-black" style={{color: hitColor}}>{hits.length}/{dataPoints.length}</div>
+            <div className="text-sm font-bold" style={{color: hitColor}}>{hitPct.toFixed(0)}%</div>
+          </div>
+        </div>
+
+        {/* Per-game bubbles */}
+        <div className="flex gap-1.5 flex-wrap mb-2">
+          {dataPoints.map(function(d, i) {
+            var hit = direction === "over" ? d.value >= threshNum : d.value < threshNum;
+            var display = isKd ? d.value.toFixed(1) : d.value;
+            return <div key={i} className="flex flex-col items-center">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold" style={{
+                background: hit ? "rgba(82,183,136,0.2)" : "rgba(255,107,107,0.15)",
+                color: hit ? "#52b788" : "#ff6b6b",
+                fontSize: "10px"
+              }}>{display}</div>
+              <span style={{fontSize: "8px", color: d.oppColor || "#444", marginTop: "2px"}}>{d.opp}</span>
+            </div>;
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between mt-2 pt-2" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+          <span style={{fontSize: "10px", color: "#333", fontWeight: 700}}>BARRACKS</span>
+          <span style={{fontSize: "10px", color: "#444"}}>Avg: {isKd ? avg.toFixed(2) : avg.toFixed(1)} / {activeCat.source === "map" ? "map" : "series"}</span>
+        </div>
+      </div>
+    </div>}
+
+    {/* Game log table */}
+    {dataPoints.length > 0 && <div className="rounded-xl overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="px-2 py-1.5 grid items-center" style={{
+        gridTemplateColumns: activeCat.source === "map" ? "42px 1fr 36px 36px 42px 36px" : "42px 1fr 36px 36px 42px 36px",
+        fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", borderBottom: "1px solid rgba(255,255,255,0.06)"
+      }}>
+        <span>OPP</span>
+        <span>{activeCat.source === "map" ? "MAP" : "DATE"}</span>
+        <span className="text-center">K</span>
+        <span className="text-center">D</span>
+        <span className="text-center">K/D</span>
+        <span className="text-center">W/L</span>
+      </div>
+      {dataPoints.map(function(d, i) {
+        return <div key={i} className="px-2 py-1.5 grid items-center" style={{
+          gridTemplateColumns: "42px 1fr 36px 36px 42px 36px",
+          borderBottom: "1px solid rgba(255,255,255,0.02)",
+          background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"
+        }}>
+          <span className="text-xs font-bold truncate" style={{color: d.oppColor || "#888"}}>{d.opp}</span>
+          <span style={{fontSize: "9px", color: "#444"}}>{d.mapName ? d.mapName : (d.date ? new Date(d.date).toLocaleDateString("en-US", {month: "short", day: "numeric"}) : "")}</span>
+          <span className="text-xs text-center font-bold text-white tabular-nums">{d.kills}</span>
+          <span className="text-xs text-center tabular-nums" style={{color: "#aaa"}}>{d.deaths}</span>
+          <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(d.kd)}}>{d.kd.toFixed(2)}</span>
+          <span className="text-xs text-center font-bold" style={{color: (activeCat.source === "map" ? d.won : d.wonSeries) ? "#52b788" : "#ff6b6b"}}>{(activeCat.source === "map" ? d.won : d.wonSeries) ? "W" : "L"}</span>
+        </div>;
+      })}
+    </div>}
+
+    {dataPoints.length === 0 && <div className="text-center py-6 text-xs" style={{color: "#555"}}>No {activeCat.source === "map" ? activeCat.sub : "series"} data found for this player</div>}
+  </div>;
+}
+
+function CDLLinesTab(props) {
+  var analysis = props.analysis;
+  var [query, setQuery] = useState("");
+  var [selectedPlayer, setSelectedPlayer] = useState(null);
+
+  var results = useMemo(function() {
+    if (query.length < 2) return [];
+    var q = query.toLowerCase();
+    return analysis.playerStats.filter(function(p) {
+      return (p.gamertag && p.gamertag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1);
+    }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 8);
+  }, [query, analysis]);
+
+  return <div>
+    {!selectedPlayer ? <div>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white mb-1">Line check</h2>
+        <p className="text-xs" style={{color: "#555"}}>Check how often a player hits over/under a kill or K/D line</p>
+      </div>
+      <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); }} placeholder="Search player..." className="w-full p-3 rounded-xl text-white placeholder-gray-600 outline-none mb-3" style={{background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", fontSize: "16px"}} />
+
+      {results.length > 0 && <div className="space-y-1">
+        {results.map(function(p) {
+          return <div key={p.player_id} className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-colors" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}} onClick={function() { setSelectedPlayer(p); setQuery(""); }}>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-white truncate">{p.gamertag}</div>
+              <div className="flex items-center gap-1.5"><RoleBadge role={p.role} /><span style={{fontSize: "11px", color: "#555"}}>{p.team_abbr || p.team_short}</span></div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
+              <div style={{fontSize: "10px", color: "#555"}}>K/D</div>
+            </div>
+          </div>;
+        })}
+      </div>}
+
+      {query.length < 2 && <div>
+        <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{color: "#555"}}>Top K/D players</div>
+        <div className="space-y-1">
+          {analysis.playerStats.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 12).map(function(p, i) {
+            return <div key={p.player_id} className="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer hover:bg-white/5 transition-colors" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent"}} onClick={function() { setSelectedPlayer(p); }}>
+              <span className="text-xs font-bold w-5 text-center" style={{color: i < 3 ? "#e94560" : "#444"}}>{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-semibold text-white truncate block">{p.gamertag}</span>
+                <div className="flex items-center gap-1"><RoleBadge role={p.role} /><span style={{fontSize: "10px", color: "#555"}}>{p.team_abbr || p.team_short}</span></div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
+                <div style={{fontSize: "9px", color: "#555"}}>K/D</div>
+              </div>
+              <span className="text-xs font-bold px-2 py-1 rounded-lg" style={{background: "rgba(82,183,136,0.1)", color: "#52b788", fontSize: "10px"}}>Check line {"\u2192"}</span>
+            </div>;
+          })}
+        </div>
+      </div>}
+    </div> : <div>
+      <button onClick={function() { setSelectedPlayer(null); }} className="text-xs font-semibold mb-4 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Pick different player</button>
+
+      <div className="flex items-center gap-3 p-3 rounded-xl mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5"><span className="text-base font-bold text-white truncate">{selectedPlayer.gamertag}</span><RoleBadge role={selectedPlayer.role} /></div>
+          <span className="text-xs" style={{color: "#888"}}>{selectedPlayer.team_name || selectedPlayer.team_abbr || ""}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(selectedPlayer, "kd"))}}>{s(selectedPlayer, "kd").toFixed(2)}</div></div>
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "hp_kills_per_10m").toFixed(1)}</div></div>
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>Matches</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "matches_played")}</div></div>
+        </div>
+      </div>
+
+      <CDLLineCheck player={selectedPlayer} />
+    </div>}
+  </div>;
+}
+
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
@@ -828,6 +1179,7 @@ export default function App() {
       </div>}
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
+      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>Data via <a href="https://www.breakingpoint.gg" target="_blank" rel="noopener" style={{color: "#666", textDecoration: "underline"}}>BreakingPoint.gg</a></p></div>

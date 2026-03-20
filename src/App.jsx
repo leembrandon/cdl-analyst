@@ -795,13 +795,16 @@ var LINE_CATS = [
 
 function CDLLineCheck(props) {
   var player = props.player;
-  var [cat, setCat] = useState("map1");
-  var [threshold, setThreshold] = useState("");
-  var [direction, setDirection] = useState("over");
-  var [range, setRange] = useState(10);
+  var init = props.initialParams || {};
+  var [cat, setCat] = useState(init.cat || "map1");
+  var [threshold, setThreshold] = useState(init.threshold || "");
+  var [direction, setDirection] = useState(init.direction || "over");
+  var [range, setRange] = useState(init.range || 10);
   var [loading, setLoading] = useState(true);
   var [mapLogs, setMapLogs] = useState([]);
   var [seriesLogs, setSeriesLogs] = useState([]);
+  var [sharing, setSharing] = useState(false);
+  var [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(function() {
     (async function() {
@@ -1009,6 +1012,49 @@ function CDLLineCheck(props) {
           <span style={{fontSize: "10px", color: "#444"}}>Avg: {isKd ? avg.toFixed(2) : avg.toFixed(1)} / {activeCat.source === "map" ? "map" : "series"}</span>
         </div>
       </div>
+
+      {/* Share / Copy link */}
+      <div className="flex justify-center gap-2 mb-3">
+        <button onClick={function() {
+          if (sharing) return;
+          setSharing(true);
+          import("./shareRenderer.js").then(function(mod) {
+            return mod.shareLineCard({
+              gamertag: player.gamertag,
+              role: player.role,
+              teamAbbr: player.team_abbr || player.team_short || "",
+              teamColor: player.team_color || "#888",
+              seasonKd: s(player, "kd"),
+              seasonHpK10: s(player, "hp_kills_per_10m"),
+              seasonSndKpr: s(player, "snd_kills_per_round"),
+              catLabel: activeCat.label,
+              catSub: activeCat.sub || "",
+              direction: direction,
+              threshold: threshNum,
+              isKd: isKd,
+              dataPoints: dataPoints,
+              hits: hits.length,
+              total: dataPoints.length,
+              hitPct: hitPct,
+              avg: avg
+            });
+          }).catch(function(e) { console.error("Share error:", e); }).finally(function() { setSharing(false); });
+        }} disabled={sharing} className="px-4 py-2 rounded-xl text-xs font-bold transition-all" style={{background: sharing ? "rgba(233,69,96,0.2)" : "#e94560", color: "#fff", opacity: sharing ? 0.6 : 1}}>
+          {sharing ? "Generating..." : "\uD83D\uDCE4 Share"}
+        </button>
+        <button onClick={function() {
+          var params = new URLSearchParams();
+          params.set("line", [player.gamertag || "", cat, direction, threshold, range].join(","));
+          var url = window.location.origin + window.location.pathname + "?" + params.toString();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(function() { setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000); }).catch(function() { prompt("Copy this link:", url); });
+          } else {
+            prompt("Copy this link:", url);
+          }
+        }} className="px-4 py-2 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(255,255,255,0.06)", color: linkCopied ? "#52b788" : "#888"}}>
+          {linkCopied ? "\u2713 Copied!" : "\uD83D\uDD17 Copy link"}
+        </button>
+      </div>
     </div>}
 
     {/* Game log table */}
@@ -1048,6 +1094,25 @@ function CDLLinesTab(props) {
   var analysis = props.analysis;
   var [query, setQuery] = useState("");
   var [selectedPlayer, setSelectedPlayer] = useState(null);
+  var [initialLineParams, setInitialLineParams] = useState(null);
+
+  // Read ?line= URL parameter on mount
+  useEffect(function() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var lineParam = params.get("line");
+      if (!lineParam) return;
+      var parts = lineParam.split(",");
+      if (parts.length >= 3) {
+        var playerName = decodeURIComponent(parts[0]).toLowerCase();
+        var found = analysis.playerStats.find(function(p) { return p.gamertag && p.gamertag.toLowerCase() === playerName; });
+        if (found) {
+          setSelectedPlayer(found);
+          setInitialLineParams({cat: parts[1] || "map1", direction: parts[2] || "over", threshold: parts[3] || "", range: parseInt(parts[4]) || 10});
+        }
+      }
+    } catch(e) {}
+  }, [analysis]);
 
   var results = useMemo(function() {
     if (query.length < 2) return [];
@@ -1114,7 +1179,7 @@ function CDLLinesTab(props) {
         </div>
       </div>
 
-      <CDLLineCheck player={selectedPlayer} />
+      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} />
     </div>}
   </div>;
 }
@@ -1124,7 +1189,8 @@ var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines", "Sea
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
-  var [tab, setTab] = useState(compareParam ? "Compare" : "Schedule");
+  var lineParam = urlParams.get("line");
+  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : "Schedule");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);

@@ -781,7 +781,7 @@ function PlayerLeaderboard(props) {
 // ─── LINES TAB (CDL PROP LINE CHECK) ────────────────────────
 // Mode name constants — the view returns these from the modes table
 var MODE_HP = "Hardpoint";
-var MODE_SND = "Search & Destroy";
+var MODE_SND = "Search and Destroy";
 var MODE_OVL = "Overload";
 
 // Line categories matching how books structure CDL props

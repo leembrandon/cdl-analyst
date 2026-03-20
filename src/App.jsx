@@ -1,7 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 
-const ALL_MAP_IDS = [38,21,59,46,53,47,27,76,29,20,67,66,18,45,68,28,10,11,15,69,23,70,60,8,54,16,25,61,55,48,44,56,49,32,9,13,72,30,31,62,12,22,17,57,50,41,19,73,51,40,75,39,36,63,74,58,33,42,52,24,35,34,71,26,64,65,43,37];
-const ROLE_MAP = { 1: "AR", 2: "SMG", 3: "Flex" };
 const CURRENT_EVENT_ID = 102;
 
 // Your Supabase (data synced by Python script)
@@ -15,42 +13,56 @@ async function mySupaFetch(table, query) {
   return res.json();
 }
 
+// ─── DATA FETCHING ───────────────────────────────────────────
+// Views return joined data with names — no manual lookups needed.
+
 async function fetchPlayers() {
-  return mySupaFetch("player_stats", "select=*");
+  // Leaderboard is the one denormalized table — has gamertag, team_name, etc.
+  return mySupaFetch("leaderboard", "select=*");
 }
+
 async function fetchTeams() {
-  return mySupaFetch("team_stats", "select=*");
+  // team_stats_view joins team_stats + teams (gives team_name, team_abbr, team_color)
+  return mySupaFetch("team_stats_view", "select=*");
 }
+
 async function fetchMatches() {
-  return mySupaFetch("matches", "select=*&status=neq.completed&order=datetime.asc");
+  // match_view joins matches + teams + events (gives team names, event names)
+  return mySupaFetch("match_view", "select=*&status=neq.completed&order=scheduled_at.asc");
 }
+
 async function fetchRosters() {
-  // Group roster rows back into the team structure buildAnalysis expects
-  var rows = await mySupaFetch("rosters", "select=*&retired=eq.false");
+  // roster_view joins rosters + players + teams + roles
+  var rows = await mySupaFetch("roster_view", "select=*");
+  // Group into team objects for buildAnalysis
   var teamMap = {};
   rows.forEach(function(r) {
     if (!teamMap[r.team_id]) {
       teamMap[r.team_id] = {
         id: r.team_id,
         name: r.team_name,
-        name_short: r.team_name_short,
+        name_short: r.team_abbr,
         color_hex: r.team_color,
         players: []
       };
     }
     teamMap[r.team_id].players.push({
       id: r.player_id,
-      name: r.player_name,
-      position_id: r.position_id,
+      name: r.gamertag,
+      role: r.role_name,
       retired: false
     });
   });
   return Object.values(teamMap);
 }
+
 async function fetchStandings(eventId) {
+  // standings_view joins standings + teams + events
   var filter = eventId ? "event_id=eq." + eventId : "event_id=is.null";
-  return mySupaFetch("cdl_standings", "select=*&season_id=eq.2026&" + filter + "&order=rank.asc");
+  return mySupaFetch("standings_view", "select=*&season_id=eq.2026&" + filter + "&order=rank.asc");
 }
+
+// ─── HELPERS ─────────────────────────────────────────────────
 
 var s = function(obj, key, def) { if (def === undefined) def = 0; return (obj && obj[key] != null) ? obj[key] : def; };
 
@@ -78,33 +90,55 @@ function kdColor(kd) {
   return "#ff6b6b";
 }
 
+function winPct(wins, losses) {
+  var total = (wins || 0) + (losses || 0);
+  return total > 0 ? ((wins || 0) / total) * 100 : 0;
+}
+
+// ─── BUILD ANALYSIS ──────────────────────────────────────────
+// Views give us names already, so this is much simpler than v1.
+
 function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings) {
   var teamLookup = {}, teamPlayers = {}, playerTeam = {}, playerStats = {}, playerRoles = {};
+
   rosters.forEach(function(t) {
     teamLookup[t.id] = {name: t.name, short: t.name_short, color: t.color_hex || "#888"};
     var active = (t.players || []).filter(function(p) { return !p.retired; });
     teamPlayers[t.id] = active;
     active.forEach(function(p) {
       playerTeam[p.id] = {teamName: t.name, teamShort: t.name_short, teamId: t.id};
-      playerRoles[p.id] = ROLE_MAP[p.position_id] || "";
+      playerRoles[p.id] = p.role || "";
     });
   });
+
+  // Players from leaderboard already have team_name, team_abbr, role
   players.forEach(function(p) {
-    var i = playerTeam[p.player_id] || {};
-    p.team_name = i.teamName || "";
-    p.team_short = i.teamShort || "";
-    p.team_id = i.teamId;
-    p.role = playerRoles[p.player_id] || "";
-    playerStats[p.player_id] = p;
+    var pid = p.player_id;
+    var i = playerTeam[pid] || {};
+    p.team_name = p.team_name || i.teamName || "";
+    p.team_short = p.team_abbr || i.teamShort || "";
+    p.team_id = p.team_id || i.teamId;
+    p.role = p.role || playerRoles[pid] || "";
+    // Map new column names to what UI components expect
+    p.player_tag = p.gamertag;
+    playerStats[pid] = p;
   });
+
+  // Teams from team_stats_view already have team_name, team_abbr, team_color
   var teamStats = {};
   teams.forEach(function(t) {
-    var i = teamLookup[t.team_id] || {};
-    t.team_name = i.name || ("Team " + t.team_id);
-    t.team_short = i.short || "";
-    t.team_color = i.color || "#888";
-    teamStats[t.team_id] = t;
+    var tid = t.team_id;
+    var i = teamLookup[tid] || {};
+    t.team_name = t.team_name || i.name || ("Team " + tid);
+    t.team_short = t.team_abbr || i.short || "";
+    t.team_color = t.team_color || i.color || "#888";
+    // Compute win percentages from W-L counts
+    t.hp_win_pct = winPct(t.hp_wins, t.hp_losses);
+    t.snd_win_pct = winPct(t.snd_wins, t.snd_losses);
+    t.ovl_win_pct = winPct(t.ovl_wins, t.ovl_losses);
+    teamStats[tid] = t;
   });
+
   var rosterStats = function(tid) {
     return (teamPlayers[tid] || []).map(function(p) { return playerStats[p.id]; }).filter(Boolean);
   };
@@ -113,46 +147,50 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
   (seasonStandings || []).forEach(function(st) { standingsLookup[st.team_id] = st; });
   (majorStandings || []).forEach(function(st) { majorStandingsLookup[st.team_id] = st; });
 
+  // Power rankings
   var power = Object.values(teamStats).map(function(ts) {
     var tid = ts.team_id, kd = s(ts, "kd");
-    var hpW = s(ts, "hp_map_win_percentage"), sndW = s(ts, "snd_map_win_percentage"), ovlW = s(ts, "ovl_map_win_percentage");
+    var hpW = ts.hp_win_pct, sndW = ts.snd_win_pct, ovlW = ts.ovl_win_pct;
     var avgWin = (hpW + sndW + ovlW) / 3;
     var rs = rosterStats(tid);
     var star = rs.reduce(function(b, p) { return s(p, "kd") > s(b, "kd") ? p : b; }, rs[0] || {});
-    var score = (kd * 25) + (avgWin * 0.3) + (s(ts, "hp_average_differential") * 0.08) + (s(ts, "snd_average_differential") * 1.5) + (s(ts, "ovl_average_differential") * 0.5);
+    var score = (kd * 25) + (avgWin * 0.3) + (s(ts, "hp_score_diff") * 0.08) + (s(ts, "snd_round_diff") * 1.5) + (s(ts, "ovl_score_diff") * 0.5);
     var st = standingsLookup[tid] || {};
-    return {tid: tid, name: ts.team_name, short: ts.team_short, color: ts.team_color, score: score, kd: kd, avgWin: avgWin, hpW: hpW, sndW: sndW, ovlW: ovlW, star: (star && star.player_tag) || "", starKd: s(star, "kd"), matchWins: st.match_wins || 0, matchLosses: st.match_losses || 0, points: st.points || 0, standingRank: st.rank || 99};
+    return {tid: tid, name: ts.team_name, short: ts.team_short, color: ts.team_color, score: score, kd: kd, avgWin: avgWin, hpW: hpW, sndW: sndW, ovlW: ovlW, star: (star && star.gamertag) || "", starKd: s(star, "kd"), matchWins: st.series_wins || 0, matchLosses: st.series_losses || 0, points: st.cdl_points || 0, standingRank: st.rank || 99};
   }).sort(function(a, b) { return b.score - a.score; });
   var powerLookup = {};
   power.forEach(function(p) { powerLookup[p.tid] = p; });
 
+  // Top performers
   var allPs = Object.values(playerStats).filter(function(p) { return p.team_id; });
   var topKd = allPs.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 5);
-  var topHpK = allPs.slice().sort(function(a, b) { return s(b, "hp_k_10m") - s(a, "hp_k_10m"); }).slice(0, 5);
-  var topSndKpr = allPs.slice().sort(function(a, b) { return s(b, "snd_kpr") - s(a, "snd_kpr"); }).slice(0, 5);
+  var topHpK = allPs.slice().sort(function(a, b) { return s(b, "hp_kills_per_10m") - s(a, "hp_kills_per_10m"); }).slice(0, 5);
+  var topSndKpr = allPs.slice().sort(function(a, b) { return s(b, "snd_kills_per_round") - s(a, "snd_kills_per_round"); }).slice(0, 5);
 
-  var known = matches.filter(function(m) { return m.team_1_id && m.team_2_id; });
+  // Matchups — match_view gives us team names and event names directly
+  var known = matches.filter(function(m) { return m.home_team_id && m.away_team_id; });
   var seen = {};
   var matchups = [];
   known.forEach(function(m) {
-    var key = Math.min(m.team_1_id, m.team_2_id) + "-" + Math.max(m.team_1_id, m.team_2_id) + "-" + (m.event_id);
+    var key = Math.min(m.home_team_id, m.away_team_id) + "-" + Math.max(m.home_team_id, m.away_team_id) + "-" + (m.event_id);
     if (seen[key]) return;
     seen[key] = true;
-    var t1 = teamStats[m.team_1_id] || {}, t2 = teamStats[m.team_2_id] || {};
-    var p1 = powerLookup[m.team_1_id] || {}, p2 = powerLookup[m.team_2_id] || {};
+    var t1 = teamStats[m.home_team_id] || {}, t2 = teamStats[m.away_team_id] || {};
+    var p1 = powerLookup[m.home_team_id] || {}, p2 = powerLookup[m.away_team_id] || {};
     var edge = Math.abs((p1.score || 0) - (p2.score || 0));
-    var favored = (p1.score || 0) >= (p2.score || 0) ? m.team_1_name_short : m.team_2_name_short;
+    var favored = (p1.score || 0) >= (p2.score || 0) ? (m.home_team_abbr || "?") : (m.away_team_abbr || "?");
 
-    // Build objects matching the shape the rest of the app expects
-    var t1Obj = {name: m.team_1_name, name_short: m.team_1_name_short};
-    var t2Obj = {name: m.team_2_name, name_short: m.team_2_name_short};
-    var evObj = {id: m.event_id, name: m.event_name, name_short: m.event_name_short};
+    var t1Obj = {name: m.home_team_name || "", name_short: m.home_team_abbr || ""};
+    var t2Obj = {name: m.away_team_name || "", name_short: m.away_team_abbr || ""};
+    var evObj = {id: m.event_id, name: m.event_name || "", name_short: m.event_short_name || ""};
 
-    matchups.push({id: m.id, datetime: m.datetime, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.team_1_id), t2Roster: rosterStats(m.team_2_id), p1: p1, p2: p2, edge: edge, favored: favored});
+    matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored});
   });
 
   return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
 }
+
+// ─── UI COMPONENTS ───────────────────────────────────────────
 
 function Stat(props) {
   var label = props.label, value = props.value, fmt = props.fmt || "0.00", color = props.color;
@@ -191,12 +229,12 @@ function PlayerRow(props) {
   var p = props.p;
   var matches = s(p, "matches_played");
   return <div className="py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-    <div className="flex items-center gap-1 mb-1.5"><span className="text-sm font-medium text-white">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{matches} matches</span></div>
+    <div className="flex items-center gap-1 mb-1.5"><span className="text-sm font-medium text-white">{p.gamertag || p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs px-1.5 py-0.5 rounded ml-1" style={{background: "rgba(255,255,255,0.05)", color: "#555", fontSize: "9px"}}>{matches} matches</span></div>
     <div className="grid grid-cols-4 gap-2 pl-1">
       <div><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div></div>
-      <div><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-semibold">{s(p, "hp_k_10m").toFixed(1)}</div></div>
-      <div><div style={{fontSize: "9px", color: "#555"}}>SnD KPR</div><div className="text-sm font-semibold">{s(p, "snd_kpr").toFixed(2)}</div></div>
-      <div><div style={{fontSize: "9px", color: "#555"}}>OVL K/10</div><div className="text-sm font-semibold">{s(p, "ovl_k_10m").toFixed(1)}</div></div>
+      <div><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-semibold">{s(p, "hp_kills_per_10m").toFixed(1)}</div></div>
+      <div><div style={{fontSize: "9px", color: "#555"}}>SnD KPR</div><div className="text-sm font-semibold">{s(p, "snd_kills_per_round").toFixed(2)}</div></div>
+      <div><div style={{fontSize: "9px", color: "#555"}}>OVL K/10</div><div className="text-sm font-semibold">{s(p, "ovl_kills_per_10m").toFixed(1)}</div></div>
     </div>
   </div>;
 }
@@ -208,7 +246,7 @@ function TeamRosterBlock(props) {
 function WhosHot(props) {
   var [cat, setCat] = useState("kd");
   var list = cat === "kd" ? props.topKd : cat === "hp" ? props.topHpK : props.topSndKpr;
-  var valFn = cat === "kd" ? function(p) { return s(p, "kd").toFixed(2); } : cat === "hp" ? function(p) { return s(p, "hp_k_10m").toFixed(1); } : function(p) { return s(p, "snd_kpr").toFixed(2); };
+  var valFn = cat === "kd" ? function(p) { return s(p, "kd").toFixed(2); } : cat === "hp" ? function(p) { return s(p, "hp_kills_per_10m").toFixed(1); } : function(p) { return s(p, "snd_kills_per_round").toFixed(2); };
   var labelMap = {kd: "K/D", hp: "HP K/10m", snd: "SnD KPR"};
   return <div className="rounded-xl p-4 mb-6" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
     <div className="flex items-center justify-between mb-3">
@@ -217,8 +255,8 @@ function WhosHot(props) {
     </div>
     {list.map(function(p, i) { return <div key={p.player_id} className="flex items-center gap-3 py-1.5" style={{borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.03)" : "none"}}>
       <span className="text-xs font-bold w-5" style={{color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
-      <span className="text-sm font-medium text-white flex-1">{p.player_tag}</span>
-      <span className="text-xs opacity-40">{p.team_short}</span>
+      <span className="text-sm font-medium text-white flex-1">{p.gamertag}</span>
+      <span className="text-xs opacity-40">{p.team_abbr || p.team_short}</span>
       <span className="text-sm font-bold" style={{color: kdColor(cat === "kd" ? s(p, "kd") : 1.05)}}>{valFn(p)}</span>
     </div>; })}
   </div>;
@@ -250,7 +288,7 @@ function MatchCard(props) {
   return <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
     <div className="p-4 cursor-pointer" onClick={function() { setExpanded(!expanded); }}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs uppercase tracking-wider opacity-40">{(mu.event && mu.event.name_short) || ""} · {((mu.round && mu.round.name_short) || "").trim()} · Bo{mu.bestOf}</span>
+        <span className="text-xs uppercase tracking-wider opacity-40">{(mu.event && mu.event.name_short) || ""} · {((mu.round && mu.round) || "").trim()} · Bo{mu.bestOf}</span>
         <span className="text-xs px-2 py-0.5 rounded-full" style={{background: cd === "LIVE" ? "#e94560" : "rgba(255,255,255,0.08)", color: cd === "LIVE" ? "#fff" : "#888"}}>{cd === "LIVE" ? "LIVE" : cd}</span>
       </div>
       <div className="flex items-center justify-between">
@@ -269,11 +307,11 @@ function MatchCard(props) {
           <div className="text-left pl-3 text-xs font-bold cursor-pointer hover:underline" style={{color: (mu.t2Stats && mu.t2Stats.team_color) || "#888"}} onClick={function(e) { e.stopPropagation(); onTeamClick(mu.t2Stats && mu.t2Stats.team_id); }}>{t2S}</div>
         </div>
         <H2HRow label="K/D" v1={s(mu.t1Stats, "kd")} v2={s(mu.t2Stats, "kd")} />
-        <H2HRow label="HP Win%" v1={s(mu.t1Stats, "hp_map_win_percentage")} v2={s(mu.t2Stats, "hp_map_win_percentage")} fmt="pct" />
-        <H2HRow label="SnD Win%" v1={s(mu.t1Stats, "snd_map_win_percentage")} v2={s(mu.t2Stats, "snd_map_win_percentage")} fmt="pct" />
-        <H2HRow label="OVL Win%" v1={s(mu.t1Stats, "ovl_map_win_percentage")} v2={s(mu.t2Stats, "ovl_map_win_percentage")} fmt="pct" />
-        <H2HRow label="HP Diff" v1={s(mu.t1Stats, "hp_average_differential")} v2={s(mu.t2Stats, "hp_average_differential")} fmt="0.0" />
-        <H2HRow label="SnD Diff" v1={s(mu.t1Stats, "snd_average_differential")} v2={s(mu.t2Stats, "snd_average_differential")} fmt="0.0" />
+        <H2HRow label="HP Win%" v1={mu.t1Stats.hp_win_pct || 0} v2={mu.t2Stats.hp_win_pct || 0} fmt="pct" />
+        <H2HRow label="SnD Win%" v1={mu.t1Stats.snd_win_pct || 0} v2={mu.t2Stats.snd_win_pct || 0} fmt="pct" />
+        <H2HRow label="OVL Win%" v1={mu.t1Stats.ovl_win_pct || 0} v2={mu.t2Stats.ovl_win_pct || 0} fmt="pct" />
+        <H2HRow label="HP Diff" v1={s(mu.t1Stats, "hp_score_diff")} v2={s(mu.t2Stats, "hp_score_diff")} fmt="0.0" />
+        <H2HRow label="SnD Diff" v1={s(mu.t1Stats, "snd_round_diff")} v2={s(mu.t2Stats, "snd_round_diff")} fmt="0.0" />
       </div>
       <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
         <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Player stats</div>
@@ -292,8 +330,8 @@ function TeamPage(props) {
   var major = analysis.majorStandingsLookup[tid] || {};
   var roster = analysis.rosterStats(tid);
   var teamMatches = analysis.matchups.filter(function(mu) { return (mu.t1Stats && mu.t1Stats.team_id === tid) || (mu.t2Stats && mu.t2Stats.team_id === tid); });
-  var mW = standing.match_wins || 0, mL = standing.match_losses || 0, gW = standing.game_wins || 0, gL = standing.game_losses || 0;
-  var mmW = major.match_wins || 0, mmL = major.match_losses || 0, mgW = major.game_wins || 0, mgL = major.game_losses || 0;
+  var mW = standing.series_wins || 0, mL = standing.series_losses || 0, gW = standing.map_wins || 0, gL = standing.map_losses || 0;
+  var mmW = major.series_wins || 0, mmL = major.series_losses || 0, mgW = major.map_wins || 0, mgL = major.map_losses || 0;
 
   return <div>
     <button onClick={onBack} className="text-sm mb-4 hover:underline" style={{color: "#e94560"}}>{"\u2190"} back to standings</button>
@@ -301,35 +339,35 @@ function TeamPage(props) {
       <div className="w-1.5 h-12 rounded" style={{background: ts.team_color}} />
       <div className="flex-1">
         <h2 className="text-2xl font-black text-white">{ts.team_name}</h2>
-        <p className="text-sm opacity-50">{mW}-{mL} season · {standing.points || 0} CDL points</p>
+        <p className="text-sm opacity-50">{mW}-{mL} season · {standing.cdl_points || 0} CDL points</p>
       </div>
       <div className="text-center"><div className="text-2xl font-black" style={{color: "#e94560"}}>#{standing.rank || "-"}</div><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>Standing</div></div>
     </div>
     <div className="grid grid-cols-2 gap-3 mb-5">
       <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.04)"}}>
-        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "4px"}}>Major 2</div>
+        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "4px"}}>Major</div>
         <div className="text-xl font-bold text-white">{mmW}-{mmL}</div>
-        <div style={{fontSize: "11px", color: "#555"}}>{mgW}-{mgL} maps · {major.points || 0} pts</div>
+        <div style={{fontSize: "11px", color: "#555"}}>{mgW}-{mgL} maps · {major.cdl_points || 0} pts</div>
       </div>
       <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.04)"}}>
         <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "4px"}}>Season</div>
         <div className="text-xl font-bold text-white">{mW}-{mL}</div>
-        <div style={{fontSize: "11px", color: "#555"}}>{gW}-{gL} maps · {standing.points || 0} pts</div>
+        <div style={{fontSize: "11px", color: "#555"}}>{gW}-{gL} maps · {standing.cdl_points || 0} pts</div>
       </div>
     </div>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
       <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>K/D</div><div className="text-xl font-bold" style={{color: kdColor(s(ts, "kd"))}}>{s(ts, "kd").toFixed(2)}</div></div>
       <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>Win rate</div><div className="text-xl font-bold" style={{color: (mW / (mW + mL || 1)) > 0.5 ? "#52b788" : "#ff6b6b"}}>{((mW / (mW + mL || 1)) * 100).toFixed(1)}%</div></div>
-      <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>HP diff</div><div className="text-xl font-bold" style={{color: s(ts, "hp_average_differential") > 0 ? "#52b788" : "#ff6b6b"}}>{s(ts, "hp_average_differential") > 0 ? "+" : ""}{s(ts, "hp_average_differential").toFixed(1)}</div></div>
-      <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>CDL points</div><div className="text-xl font-bold text-white">{standing.points || 0}</div></div>
+      <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>HP diff</div><div className="text-xl font-bold" style={{color: s(ts, "hp_score_diff") > 0 ? "#52b788" : "#ff6b6b"}}>{s(ts, "hp_score_diff") > 0 ? "+" : ""}{s(ts, "hp_score_diff").toFixed(1)}</div></div>
+      <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>CDL points</div><div className="text-xl font-bold text-white">{standing.cdl_points || 0}</div></div>
     </div>
     <div className="mb-5">
       <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Performance by mode</div>
       <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
         <div className="grid grid-cols-4 gap-2 px-3 py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}><div style={{fontSize: "10px", color: "#555"}}>MODE</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>WIN%</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>K/D</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>DIFF</div></div>
-        {[["Hardpoint", "hp"], ["SnD", "snd"], ["Overload", "ovl"]].map(function(arr) {
-          var label = arr[0], mode = arr[1];
-          var w = s(ts, mode + "_map_win_percentage"), kd = s(ts, mode + "_kd"), diff = s(ts, mode + "_average_differential");
+        {[["Hardpoint", "hp", "hp_score_diff"], ["SnD", "snd", "snd_round_diff"], ["Overload", "ovl", "ovl_score_diff"]].map(function(arr) {
+          var label = arr[0], mode = arr[1], diffKey = arr[2];
+          var w = ts[mode + "_win_pct"] || 0, kd = s(ts, mode + "_kd"), diff = s(ts, diffKey);
           return <div key={mode} className="grid grid-cols-4 gap-2 px-3 py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
             <div className="text-sm font-semibold" style={{color: "#888"}}>{label}</div>
             <div className="text-sm text-center" style={{color: w > 50 ? "#52b788" : w < 45 ? "#ff6b6b" : "#ffd166"}}>{w.toFixed(1)}%</div>
@@ -363,11 +401,11 @@ function TeamsGrid(props) {
       var tid = major.team_id;
       var ts = analysis.teamStats[tid] || {};
       var season = analysis.standingsLookup[tid] || {};
-      var color = ts.team_color || "#888";
+      var color = ts.team_color || major.team_color || "#888";
       var fullName = ts.team_name || major.team_name || "?";
       var kd = s(ts, "kd");
-      var hpDiff = s(ts, "hp_average_differential");
-      var avgWin = (s(ts, "hp_map_win_percentage") + s(ts, "snd_map_win_percentage") + s(ts, "ovl_map_win_percentage")) / 3;
+      var hpDiff = s(ts, "hp_score_diff");
+      var avgWin = ((ts.hp_win_pct || 0) + (ts.snd_win_pct || 0) + (ts.ovl_win_pct || 0)) / 3;
 
       return <div key={tid} className="rounded-xl p-4 cursor-pointer hover:border-white/20 transition-all" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}} onClick={function() { onTeamClick(tid); }}>
         <div className="flex items-center gap-2 mb-3">
@@ -377,14 +415,14 @@ function TeamsGrid(props) {
         </div>
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="rounded-lg p-2" style={{background: "rgba(255,255,255,0.04)"}}>
-            <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Major 2</div>
-            <div className="text-sm font-bold text-white">{major.match_wins}-{major.match_losses}</div>
-            <div style={{fontSize: "10px", color: "#555"}}>{major.game_wins}-{major.game_losses} maps · {major.points || 0} pts</div>
+            <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Major</div>
+            <div className="text-sm font-bold text-white">{major.series_wins}-{major.series_losses}</div>
+            <div style={{fontSize: "10px", color: "#555"}}>{major.map_wins}-{major.map_losses} maps · {major.cdl_points || 0} pts</div>
           </div>
           <div className="rounded-lg p-2" style={{background: "rgba(255,255,255,0.04)"}}>
             <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Season</div>
-            <div className="text-sm font-bold text-white">{season.match_wins || 0}-{season.match_losses || 0}</div>
-            <div style={{fontSize: "10px", color: "#555"}}>{season.game_wins || 0}-{season.game_losses || 0} maps · {season.points || 0} pts</div>
+            <div className="text-sm font-bold text-white">{season.series_wins || 0}-{season.series_losses || 0}</div>
+            <div style={{fontSize: "10px", color: "#555"}}>{season.map_wins || 0}-{season.map_losses || 0} maps · {season.cdl_points || 0} pts</div>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -404,33 +442,33 @@ function PlayerSearch(props) {
   var results = useMemo(function() {
     if (query.length < 2) return [];
     var q = query.toLowerCase();
-    return analysis.playerStats.filter(function(p) { return (p.player_tag && p.player_tag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1); }).slice(0, 12);
+    return analysis.playerStats.filter(function(p) { return (p.gamertag && p.gamertag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1); }).slice(0, 12);
   }, [query, analysis]);
 
   return <div className="space-y-3">
     <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); setSelected(null); }} placeholder="Search player or team..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
     {results.length > 0 && !selected && <div className="space-y-1">{results.map(function(p) {
       return <div key={p.player_id} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5" onClick={function() { setSelected(p); }}>
-        <span className="font-bold text-white">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-50">{p.team_short}</span><span className="ml-auto"><KdBadge kd={s(p, "kd")} size="sm" /></span>
+        <span className="font-bold text-white">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-50">{p.team_abbr || p.team_short}</span><span className="ml-auto"><KdBadge kd={s(p, "kd")} size="sm" /></span>
       </div>;
     })}</div>}
     {selected && <div className="space-y-3">
-      <div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold text-white">{selected.player_tag}</h3><RoleBadge role={selected.role} /></div><span className="text-sm opacity-50">{selected.team_name}</span></div><button onClick={function() { setSelected(null); }} className="text-xs opacity-50 hover:opacity-100">{"\u2715"} clear</button></div>
+      <div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold text-white">{selected.gamertag}</h3><RoleBadge role={selected.role} /></div><span className="text-sm opacity-50">{selected.team_name}</span></div><button onClick={function() { setSelected(null); }} className="text-xs opacity-50 hover:opacity-100">{"\u2715"} clear</button></div>
       <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.03)"}}>
         <div className="grid grid-cols-3 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-          <Stat label="Overall K/D" value={s(selected, "kd")} /><Stat label="DMG/min" value={s(selected, "dmg_per_min")} fmt="0.0" /><Stat label="FB%" value={s(selected, "first_blood_percentage") * 100} fmt="0.0" />
+          <Stat label="Overall K/D" value={s(selected, "kd")} /><Stat label="DMG/10m" value={s(selected, "dmg_per_10m")} fmt="0.0" /><Stat label="FB%" value={s(selected, "first_blood_pct") * 100} fmt="0.0" />
         </div>
         <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Hardpoint</div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-          <Stat label="HP K/D" value={s(selected, "hp_kd")} /><Stat label="K/10" value={s(selected, "hp_k_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "hp_d_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "hp_dmg_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "hp_eng_10m")} fmt="0.0" />
+          <Stat label="HP K/D" value={s(selected, "hp_kd")} /><Stat label="K/10" value={s(selected, "hp_kills_per_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "hp_deaths_per_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "hp_damage_per_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "hp_engagements_10m")} fmt="0.0" />
         </div>
         <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Search and Destroy</div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
-          <Stat label="SnD K/D" value={s(selected, "snd_kd")} /><Stat label="KPR" value={s(selected, "snd_kpr")} /><Stat label="DPR" value={s(selected, "snd_dpr")} /><Stat label="FB%" value={s(selected, "first_blood_percentage") * 100} fmt="0.0" />
+          <Stat label="SnD K/D" value={s(selected, "snd_kd")} /><Stat label="KPR" value={s(selected, "snd_kills_per_round")} /><Stat label="DPR" value={s(selected, "snd_deaths_per_round")} /><Stat label="FB%" value={s(selected, "first_blood_pct") * 100} fmt="0.0" />
         </div>
         <div style={{fontSize: "10px", fontWeight: 600, color: "#e94560", padding: "4px 0"}}>Overload</div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <Stat label="OVL K/D" value={s(selected, "ovl_kd")} /><Stat label="K/10" value={s(selected, "ovl_k_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "ovl_d_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "ovl_dmg_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "ovl_eng_10m")} fmt="0.0" />
+          <Stat label="OVL K/D" value={s(selected, "ovl_kd")} /><Stat label="K/10" value={s(selected, "ovl_kills_per_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "ovl_deaths_per_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "ovl_damage_per_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "ovl_engagements_10m")} fmt="0.0" />
         </div>
       </div>
     </div>}
@@ -468,15 +506,15 @@ function PlayerCompare(props) {
     if (parts.length !== 2) return;
     var name1 = decodeURIComponent(parts[0]).toLowerCase().trim();
     var name2 = decodeURIComponent(parts[1]).toLowerCase().trim();
-    var found1 = analysis.playerStats.find(function(p) { return p.player_tag && p.player_tag.toLowerCase() === name1; });
-    var found2 = analysis.playerStats.find(function(p) { return p.player_tag && p.player_tag.toLowerCase() === name2; });
-    if (found1) { setP1(found1); setQ1(found1.player_tag); }
-    if (found2) { setP2(found2); setQ2(found2.player_tag); }
+    var found1 = analysis.playerStats.find(function(p) { return p.gamertag && p.gamertag.toLowerCase() === name1; });
+    var found2 = analysis.playerStats.find(function(p) { return p.gamertag && p.gamertag.toLowerCase() === name2; });
+    if (found1) { setP1(found1); setQ1(found1.gamertag); }
+    if (found2) { setP2(found2); setQ2(found2.gamertag); }
   }, [initialCompare, analysis]);
 
   var updateUrl = function(player1, player2) {
     if (player1 && player2) {
-      var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(player1.player_tag) + "," + encodeURIComponent(player2.player_tag);
+      var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(player1.gamertag) + "," + encodeURIComponent(player2.gamertag);
       window.history.replaceState(null, "", url);
     } else {
       window.history.replaceState(null, "", window.location.pathname);
@@ -487,56 +525,49 @@ function PlayerCompare(props) {
     if (q.length < 2) return [];
     var lower = q.toLowerCase();
     return analysis.playerStats.filter(function(p) {
-      return (p.player_tag && p.player_tag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
+      return (p.gamertag && p.gamertag.toLowerCase().indexOf(lower) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(lower) !== -1);
     }).slice(0, 6);
   };
 
   var r1 = useMemo(function() { return search(q1); }, [q1, analysis]);
   var r2 = useMemo(function() { return search(q2); }, [q2, analysis]);
 
-  var pick1 = function(p) { setP1(p); setQ1(p.player_tag); setShow1(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p, p2); };
-  var pick2 = function(p) { setP2(p); setQ2(p.player_tag); setShow2(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p1, p); };
+  var pick1 = function(p) { setP1(p); setQ1(p.gamertag); setShow1(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p, p2); };
+  var pick2 = function(p) { setP2(p); setQ2(p.gamertag); setShow2(false); if (document.activeElement) document.activeElement.blur(); updateUrl(p1, p); };
 
   var handleShareImage = function() {
     if (!p1 || !p2 || sharing) return;
     setSharing(true);
     import("./shareRenderer.js").then(function(mod) {
       return mod.shareCompareImage(p1, p2);
-    }).then(function() {
-      setSharing(false);
-    }).catch(function() {
-      setSharing(false);
-    });
+    }).then(function() { setSharing(false); }).catch(function() { setSharing(false); });
   };
 
   var handleCopyLink = function() {
     if (!p1 || !p2) return;
-    var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(p1.player_tag) + "," + encodeURIComponent(p2.player_tag);
+    var url = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(p1.gamertag) + "," + encodeURIComponent(p2.gamertag);
     navigator.clipboard.writeText(url).then(function() {
-      setLinkCopied(true);
-      setTimeout(function() { setLinkCopied(false); }, 2000);
-    }).catch(function() {
-      prompt("Copy this link:", url);
-    });
+      setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000);
+    }).catch(function() { prompt("Copy this link:", url); });
   };
 
   var stats = [
     {label: "K/D", k: "kd"},
-    {label: "DMG/min", k: "dmg_per_min", fmt: "0.0"},
+    {label: "DMG/10m", k: "dmg_per_10m", fmt: "0.0"},
     {label: "HP K/D", k: "hp_kd"},
-    {label: "HP K/10", k: "hp_k_10m", fmt: "0.0"},
-    {label: "HP D/10", k: "hp_d_10m", fmt: "0.0", lower: true},
-    {label: "HP DMG/10", k: "hp_dmg_10m", fmt: "0.0"},
-    {label: "HP ENG/10", k: "hp_eng_10m", fmt: "0.0"},
+    {label: "HP K/10", k: "hp_kills_per_10m", fmt: "0.0"},
+    {label: "HP D/10", k: "hp_deaths_per_10m", fmt: "0.0", lower: true},
+    {label: "HP DMG/10", k: "hp_damage_per_10m", fmt: "0.0"},
+    {label: "HP ENG/10", k: "hp_engagements_10m", fmt: "0.0"},
     {label: "SnD K/D", k: "snd_kd"},
-    {label: "SnD KPR", k: "snd_kpr"},
-    {label: "SnD DPR", k: "snd_dpr", lower: true},
-    {label: "SnD FB%", k: "first_blood_percentage", fmt: "pct", pctMul: true},
+    {label: "SnD KPR", k: "snd_kills_per_round"},
+    {label: "SnD DPR", k: "snd_deaths_per_round", lower: true},
+    {label: "SnD FB%", k: "first_blood_pct", fmt: "pct", pctMul: true},
     {label: "OVL K/D", k: "ovl_kd"},
-    {label: "OVL K/10", k: "ovl_k_10m", fmt: "0.0"},
-    {label: "OVL D/10", k: "ovl_d_10m", fmt: "0.0", lower: true},
-    {label: "OVL DMG/10", k: "ovl_dmg_10m", fmt: "0.0"},
-    {label: "OVL ENG/10", k: "ovl_eng_10m", fmt: "0.0"}
+    {label: "OVL K/10", k: "ovl_kills_per_10m", fmt: "0.0"},
+    {label: "OVL D/10", k: "ovl_deaths_per_10m", fmt: "0.0", lower: true},
+    {label: "OVL DMG/10", k: "ovl_damage_per_10m", fmt: "0.0"},
+    {label: "OVL ENG/10", k: "ovl_engagements_10m", fmt: "0.0"}
   ];
 
   var p1Wins = 0, p2Wins = 0;
@@ -552,19 +583,16 @@ function PlayerCompare(props) {
     });
   }
   var totalCats = Object.keys(counted).length;
-
   var handleItem = function(e, pickFn, p) { e.preventDefault(); e.stopPropagation(); pickFn(p); };
-
   var winner = p1 && p2 ? (p1Wins > p2Wins ? p1 : p2Wins > p1Wins ? p2 : null) : null;
 
   return <div className="space-y-4">
-    {/* Search inputs — horizontal on mobile with VS between */}
     <div className="flex gap-2 items-start">
       <div className="relative flex-1">
         <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p1 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
         {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
           {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick1, p); }} onTouchEnd={function(e) { handleItem(e, pick1, p); }}>
-            <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
+            <span className="text-white font-medium text-sm">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_abbr || p.team_short}</span>
           </div>; })}
         </div>}
       </div>
@@ -573,28 +601,26 @@ function PlayerCompare(props) {
         <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p2 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
         {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
           {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick2, p); }} onTouchEnd={function(e) { handleItem(e, pick2, p); }}>
-            <span className="text-white font-medium text-sm">{p.player_tag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_short}</span>
+            <span className="text-white font-medium text-sm">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_abbr || p.team_short}</span>
           </div>; })}
         </div>}
       </div>
     </div>
 
-    {/* Reset button when both selected */}
     {p1 && p2 && <div className="flex items-center justify-end">
       <button onClick={function() { setP1(null); setP2(null); setQ1(""); setQ2(""); updateUrl(null, null); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Reset</button>
     </div>}
 
-    {/* ===== FULL BREAKDOWN — always shown when both players selected ===== */}
     {p1 && p2 && <div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p1.gamertag}</span></div>
           <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p1.team_name}</span><RoleBadge role={p1.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p1, "kd"))}}>{s(p1, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
         </div>
         <div className="rounded-xl p-3 sm:p-4 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.player_tag}</span></div>
+          <div className="flex items-center justify-center gap-1"><span className="text-base sm:text-lg font-bold text-white">{p2.gamertag}</span></div>
           <div className="flex items-center justify-center gap-1"><span className="text-xs opacity-40">{p2.team_name}</span><RoleBadge role={p2.role} /></div>
           <div className="text-2xl font-black mt-2" style={{color: kdColor(s(p2, "kd"))}}>{s(p2, "kd").toFixed(2)}</div>
           <div style={{fontSize: "10px", color: "#555"}}>Overall K/D</div>
@@ -603,38 +629,32 @@ function PlayerCompare(props) {
 
       <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)"}}>
         <div className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr auto 1fr", background: "rgba(255,255,255,0.04)"}}>
-          <div className="text-right pr-2 text-xs font-bold" style={{color: "#e94560"}}>{p1.player_tag}</div>
+          <div className="text-right pr-2 text-xs font-bold" style={{color: "#e94560"}}>{p1.gamertag}</div>
           <div className="text-center text-xs opacity-30 px-1" style={{minWidth: "64px"}}>stat</div>
-          <div className="text-left pl-2 text-xs font-bold" style={{color: "#e94560"}}>{p2.player_tag}</div>
+          <div className="text-left pl-2 text-xs font-bold" style={{color: "#e94560"}}>{p2.gamertag}</div>
         </div>
-
         <div style={{padding: "0 8px"}}>
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>OVERALL</div>
           <CompareRow label="K/D" v1={s(p1, "kd")} v2={s(p2, "kd")} />
-          <CompareRow label="DMG/min" v1={s(p1, "dmg_per_min")} v2={s(p2, "dmg_per_min")} fmt="0.0" />
-
+          <CompareRow label="DMG/10m" v1={s(p1, "dmg_per_10m")} v2={s(p2, "dmg_per_10m")} fmt="0.0" />
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>HARDPOINT</div>
           <CompareRow label="HP K/D" v1={s(p1, "hp_kd")} v2={s(p2, "hp_kd")} />
-          <CompareRow label="K/10" v1={s(p1, "hp_k_10m")} v2={s(p2, "hp_k_10m")} fmt="0.0" />
-          <CompareRow label="D/10" v1={s(p1, "hp_d_10m")} v2={s(p2, "hp_d_10m")} fmt="0.0" />
-          <CompareRow label="DMG/10" v1={s(p1, "hp_dmg_10m")} v2={s(p2, "hp_dmg_10m")} fmt="0.0" />
-          <CompareRow label="ENG/10" v1={s(p1, "hp_eng_10m")} v2={s(p2, "hp_eng_10m")} fmt="0.0" />
-
+          <CompareRow label="K/10" v1={s(p1, "hp_kills_per_10m")} v2={s(p2, "hp_kills_per_10m")} fmt="0.0" />
+          <CompareRow label="D/10" v1={s(p1, "hp_deaths_per_10m")} v2={s(p2, "hp_deaths_per_10m")} fmt="0.0" />
+          <CompareRow label="DMG/10" v1={s(p1, "hp_damage_per_10m")} v2={s(p2, "hp_damage_per_10m")} fmt="0.0" />
+          <CompareRow label="ENG/10" v1={s(p1, "hp_engagements_10m")} v2={s(p2, "hp_engagements_10m")} fmt="0.0" />
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>SEARCH & DESTROY</div>
           <CompareRow label="SnD K/D" v1={s(p1, "snd_kd")} v2={s(p2, "snd_kd")} />
-          <CompareRow label="KPR" v1={s(p1, "snd_kpr")} v2={s(p2, "snd_kpr")} />
-          <CompareRow label="DPR" v1={s(p1, "snd_dpr")} v2={s(p2, "snd_dpr")} />
-          <CompareRow label="FB%" v1={s(p1, "first_blood_percentage") * 100} v2={s(p2, "first_blood_percentage") * 100} fmt="0.0" />
-
+          <CompareRow label="KPR" v1={s(p1, "snd_kills_per_round")} v2={s(p2, "snd_kills_per_round")} />
+          <CompareRow label="DPR" v1={s(p1, "snd_deaths_per_round")} v2={s(p2, "snd_deaths_per_round")} />
+          <CompareRow label="FB%" v1={s(p1, "first_blood_pct") * 100} v2={s(p2, "first_blood_pct") * 100} fmt="0.0" />
           <div style={{fontSize: "9px", fontWeight: 700, color: "#e94560", padding: "8px 0 2px", letterSpacing: "1px"}}>OVERLOAD</div>
           <CompareRow label="OVL K/D" v1={s(p1, "ovl_kd")} v2={s(p2, "ovl_kd")} />
-          <CompareRow label="K/10" v1={s(p1, "ovl_k_10m")} v2={s(p2, "ovl_k_10m")} fmt="0.0" />
-          <CompareRow label="D/10" v1={s(p1, "ovl_d_10m")} v2={s(p2, "ovl_d_10m")} fmt="0.0" />
-          <CompareRow label="DMG/10" v1={s(p1, "ovl_dmg_10m")} v2={s(p2, "ovl_dmg_10m")} fmt="0.0" />
-          <CompareRow label="ENG/10" v1={s(p1, "ovl_eng_10m")} v2={s(p2, "ovl_eng_10m")} fmt="0.0" />
+          <CompareRow label="K/10" v1={s(p1, "ovl_kills_per_10m")} v2={s(p2, "ovl_kills_per_10m")} fmt="0.0" />
+          <CompareRow label="D/10" v1={s(p1, "ovl_deaths_per_10m")} v2={s(p2, "ovl_deaths_per_10m")} fmt="0.0" />
+          <CompareRow label="DMG/10" v1={s(p1, "ovl_damage_per_10m")} v2={s(p2, "ovl_damage_per_10m")} fmt="0.0" />
+          <CompareRow label="ENG/10" v1={s(p1, "ovl_engagements_10m")} v2={s(p2, "ovl_engagements_10m")} fmt="0.0" />
         </div>
-
-        {/* Win bar visual + verdict */}
         <div style={{borderTop: "1px solid rgba(255,255,255,0.06)"}}>
           <div className="flex" style={{height: "4px"}}>
             <div style={{width: (totalCats > 0 ? (p1Wins / totalCats * 100) : 50) + "%", background: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b", transition: "width 0.5s"}} />
@@ -643,27 +663,22 @@ function PlayerCompare(props) {
           </div>
           <div className="grid grid-cols-3 items-center py-3 px-3" style={{background: "rgba(255,255,255,0.03)"}}>
             <div className="text-left"><div className="text-xl font-black" style={{color: p1Wins >= p2Wins ? "#52b788" : "#ff6b6b"}}>{p1Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
-            <div className="text-center">
-              {winner ? <div><div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>VERDICT</div><div className="text-sm font-black" style={{color: "#52b788"}}>{winner.player_tag}</div></div> : <div style={{fontSize: "11px", color: "#ffd166", fontWeight: 700}}>TIED</div>}
-            </div>
+            <div className="text-center">{winner ? <div><div style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>VERDICT</div><div className="text-sm font-black" style={{color: "#52b788"}}>{winner.gamertag}</div></div> : <div style={{fontSize: "11px", color: "#ffd166", fontWeight: 700}}>TIED</div>}</div>
             <div className="text-right"><div className="text-xl font-black" style={{color: p2Wins >= p1Wins ? "#52b788" : "#ff6b6b"}}>{p2Wins}</div><div style={{fontSize: "10px", color: "#555"}}>categories won</div></div>
           </div>
         </div>
       </div>
-
-      {/* Share actions — directly below the full breakdown */}
       <div className="flex gap-2 mt-4">
-        <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1, transition: "opacity 0.2s"}}>
+        <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1}}>
           {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
           <span>{sharing ? "Generating..." : "Share image"}</span>
         </button>
-        <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0", transition: "all 0.2s"}}>
+        <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0"}}>
           {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
           <span>{linkCopied ? "Copied!" : "Copy link"}</span>
         </button>
       </div>
     </div>}
-
     {(!p1 || !p2) && <div className="text-center py-8 opacity-30"><p className="text-sm">Select two players to compare their stats</p></div>}
   </div>;
 }
@@ -675,37 +690,36 @@ function PlayerLeaderboard(props) {
 
   var sortOptions = [
     {key: "kd", label: "K/D"},
-    {key: "hp_k_10m", label: "HP K/10"},
+    {key: "hp_kills_per_10m", label: "HP K/10"},
     {key: "hp_kd", label: "HP K/D"},
-    {key: "hp_dmg_10m", label: "HP DMG/10"},
-    {key: "hp_eng_10m", label: "HP ENG/10"},
-    {key: "snd_kpr", label: "SnD KPR"},
+    {key: "hp_damage_per_10m", label: "HP DMG/10"},
+    {key: "hp_engagements_10m", label: "HP ENG/10"},
+    {key: "snd_kills_per_round", label: "SnD KPR"},
     {key: "snd_kd", label: "SnD K/D"},
-    {key: "first_blood_percentage", label: "FB%"},
-    {key: "ovl_k_10m", label: "OVL K/10"},
+    {key: "first_blood_pct", label: "FB%"},
+    {key: "ovl_kills_per_10m", label: "OVL K/10"},
     {key: "ovl_kd", label: "OVL K/D"},
-    {key: "dmg_per_min", label: "DMG/min"}
+    {key: "dmg_per_10m", label: "DMG/10m"}
   ];
 
   var contextStats = {
-    kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}],
-    hp_k_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_dmg_10m", label: "HP DMG/10", fmt: "0.0"}],
-    hp_kd: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_d_10m", label: "HP D/10", fmt: "0.0"}],
-    hp_dmg_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_eng_10m", label: "HP ENG/10", fmt: "0.0"}],
-    hp_eng_10m: [{k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_dmg_10m", label: "HP DMG/10", fmt: "0.0"}],
-    snd_kpr: [{k: "snd_kd", label: "SnD K/D", fmt: "0.00"}, {k: "first_blood_percentage", label: "FB%", fmt: "pct"}],
-    snd_kd: [{k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}, {k: "snd_dpr", label: "SnD DPR", fmt: "0.00"}],
-    first_blood_percentage: [{k: "snd_kpr", label: "SnD KPR", fmt: "0.00"}, {k: "snd_kd", label: "SnD K/D", fmt: "0.00"}],
-    ovl_k_10m: [{k: "ovl_kd", label: "OVL K/D", fmt: "0.00"}, {k: "ovl_dmg_10m", label: "OVL DMG/10", fmt: "0.0"}],
-    ovl_kd: [{k: "ovl_k_10m", label: "OVL K/10", fmt: "0.0"}, {k: "ovl_d_10m", label: "OVL D/10", fmt: "0.0"}],
-    dmg_per_min: [{k: "kd", label: "K/D", fmt: "0.00"}, {k: "hp_k_10m", label: "HP K/10", fmt: "0.0"}]
+    kd: [{k: "hp_kills_per_10m", label: "HP K/10", fmt: "0.0"}, {k: "snd_kills_per_round", label: "SnD KPR", fmt: "0.00"}],
+    hp_kills_per_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_damage_per_10m", label: "HP DMG/10", fmt: "0.0"}],
+    hp_kd: [{k: "hp_kills_per_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_deaths_per_10m", label: "HP D/10", fmt: "0.0"}],
+    hp_damage_per_10m: [{k: "hp_kd", label: "HP K/D", fmt: "0.00"}, {k: "hp_engagements_10m", label: "HP ENG/10", fmt: "0.0"}],
+    hp_engagements_10m: [{k: "hp_kills_per_10m", label: "HP K/10", fmt: "0.0"}, {k: "hp_damage_per_10m", label: "HP DMG/10", fmt: "0.0"}],
+    snd_kills_per_round: [{k: "snd_kd", label: "SnD K/D", fmt: "0.00"}, {k: "first_blood_pct", label: "FB%", fmt: "pct"}],
+    snd_kd: [{k: "snd_kills_per_round", label: "SnD KPR", fmt: "0.00"}, {k: "snd_deaths_per_round", label: "SnD DPR", fmt: "0.00"}],
+    first_blood_pct: [{k: "snd_kills_per_round", label: "SnD KPR", fmt: "0.00"}, {k: "snd_kd", label: "SnD K/D", fmt: "0.00"}],
+    ovl_kills_per_10m: [{k: "ovl_kd", label: "OVL K/D", fmt: "0.00"}, {k: "ovl_damage_per_10m", label: "OVL DMG/10", fmt: "0.0"}],
+    ovl_kd: [{k: "ovl_kills_per_10m", label: "OVL K/10", fmt: "0.0"}, {k: "ovl_deaths_per_10m", label: "OVL D/10", fmt: "0.0"}],
+    dmg_per_10m: [{k: "kd", label: "K/D", fmt: "0.00"}, {k: "hp_kills_per_10m", label: "HP K/10", fmt: "0.0"}]
   };
 
   var filtered = analysis.playerStats.filter(function(p) {
     if (roleFilter === "All") return true;
     return p.role === roleFilter;
   });
-
   var sorted = filtered.slice().sort(function(a, b) { return s(b, sortBy) - s(a, sortBy); });
 
   var fmtVal = function(v, fmt) {
@@ -714,14 +728,11 @@ function PlayerLeaderboard(props) {
     return v.toFixed(2);
   };
 
-  var mainFmt = sortBy === "first_blood_percentage" ? "pct" : (sortBy.indexOf("k_10m") !== -1 || sortBy.indexOf("d_10m") !== -1 || sortBy.indexOf("dmg_10m") !== -1 || sortBy.indexOf("eng_10m") !== -1 || sortBy === "dmg_per_min") ? "0.0" : "0.00";
-
+  var mainFmt = sortBy === "first_blood_pct" ? "pct" : (sortBy.indexOf("per_10m") !== -1 || sortBy.indexOf("per_round") !== -1 || sortBy === "dmg_per_10m") ? "0.0" : "0.00";
   var roles = ["All"];
   var roleSet = {};
   analysis.playerStats.forEach(function(p) { if (p.role && !roleSet[p.role]) { roleSet[p.role] = true; roles.push(p.role); } });
-
   var ctx = contextStats[sortBy] || contextStats.kd;
-
   var sortLabel = "";
   sortOptions.forEach(function(opt) { if (opt.key === sortBy) sortLabel = opt.label; });
 
@@ -735,37 +746,22 @@ function PlayerLeaderboard(props) {
         return <button key={r} onClick={function() { setRoleFilter(r); }} className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{background: roleFilter === r ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.05)", color: roleFilter === r ? "#53a8b6" : "#666"}}>{r}</button>;
       })}
     </div>
-
     <div style={{fontSize: "11px", color: "#555", marginBottom: "10px"}}>{sorted.length} players · Sorted by {sortLabel}</div>
-
     {sorted.map(function(p, i) {
       var matches = s(p, "matches_played");
       var mainVal = s(p, sortBy);
       var mainColor = sortBy.indexOf("kd") !== -1 || sortBy === "kd" ? kdColor(mainVal) : mainVal > 0 ? "#52b788" : "#888";
-
       return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
         <span className="text-xs font-bold flex-shrink-0" style={{width: "24px", textAlign: "center", color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-semibold text-white truncate">{p.player_tag}</span>
-            <RoleBadge role={p.role} />
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span style={{fontSize: "11px", color: "#555"}}>{p.team_short}</span>
-            <span style={{fontSize: "10px", color: "#444"}}>{matches} matches</span>
-          </div>
+          <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span><RoleBadge role={p.role} /></div>
+          <div className="flex items-center gap-2 mt-0.5"><span style={{fontSize: "11px", color: "#555"}}>{p.team_abbr || p.team_short}</span><span style={{fontSize: "10px", color: "#444"}}>{matches} matches</span></div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {ctx.map(function(c) {
-            return <div key={c.k} className="text-center hidden sm:block">
-              <div style={{fontSize: "9px", color: "#555"}}>{c.label}</div>
-              <div style={{fontSize: "12px", fontWeight: 600, color: "#aaa"}}>{fmtVal(s(p, c.k), c.fmt)}</div>
-            </div>;
+            return <div key={c.k} className="text-center hidden sm:block"><div style={{fontSize: "9px", color: "#555"}}>{c.label}</div><div style={{fontSize: "12px", fontWeight: 600, color: "#aaa"}}>{fmtVal(s(p, c.k), c.fmt)}</div></div>;
           })}
-          <div className="text-center" style={{minWidth: "48px"}}>
-            <div style={{fontSize: "9px", color: "#555"}}>{sortLabel}</div>
-            <div style={{fontSize: "16px", fontWeight: 700, color: mainColor}}>{fmtVal(mainVal, mainFmt)}</div>
-          </div>
+          <div className="text-center" style={{minWidth: "48px"}}><div style={{fontSize: "9px", color: "#555"}}>{sortLabel}</div><div style={{fontSize: "16px", fontWeight: 700, color: mainColor}}>{fmtVal(mainVal, mainFmt)}</div></div>
         </div>
       </div>;
     })}
@@ -806,7 +802,7 @@ export default function App() {
 
   if (error) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center p-6 rounded-xl max-w-md" style={{background: "rgba(233,69,96,0.1)", border: "1px solid rgba(233,69,96,0.3)"}}><p className="text-lg font-bold mb-2" style={{color: "#e94560"}}>Failed to load</p><p className="text-sm opacity-60">{error}</p><button onClick={function() { window.location.reload(); }} className="mt-4 px-4 py-2 rounded-lg text-sm font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button></div></div>;
 
-  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major 2";
+  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major";
 
   return <div className="min-h-screen" style={{background: "#0d0d1a", color: "#c8c8d0"}}>
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
@@ -816,16 +812,13 @@ export default function App() {
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
-
       {tab === "Schedule" && <div className="space-y-3">
         <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
         <h2 className="text-lg font-bold text-white mb-4">Upcoming matches</h2>
         {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
         {analysis.matchups.length === 0 && <p className="opacity-40">No upcoming matches with known teams</p>}
       </div>}
-
       {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
-
       {tab === "Teams" && <div>
         {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} /> : <div>
           <h2 className="text-lg font-bold text-white mb-1">CDL standings</h2>
@@ -833,11 +826,8 @@ export default function App() {
           <TeamsGrid analysis={analysis} onTeamClick={setTeamPageId} />
         </div>}
       </div>}
-
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
-
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
-
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>Data via <a href="https://www.breakingpoint.gg" target="_blank" rel="noopener" style={{color: "#666", textDecoration: "underline"}}>BreakingPoint.gg</a></p></div>

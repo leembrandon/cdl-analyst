@@ -4,6 +4,7 @@
  * No html2canvas dependency — draws everything pixel-by-pixel.
  *
  * Updated for v2 schema column names.
+ * Updated to include share URLs in navigator.share() calls.
  */
 
 var CARD_WIDTH = 720;
@@ -260,6 +261,7 @@ export function renderCompareImage(p1, p2) {
 
 /**
  * Generate a share image blob from the canvas and trigger share or download.
+ * Now includes the shareable URL so recipients get a clickable link.
  */
 export function shareCompareImage(p1, p2) {
   return new Promise(function(resolve, reject) {
@@ -267,6 +269,7 @@ export function shareCompareImage(p1, p2) {
       var canvas = renderCompareImage(p1, p2);
       var name1 = p1.gamertag || p1.player_tag || "P1";
       var name2 = p2.gamertag || p2.player_tag || "P2";
+      var shareUrl = window.location.origin + window.location.pathname + "?compare=" + encodeURIComponent(name1) + "," + encodeURIComponent(name2);
       canvas.toBlob(function(blob) {
         if (!blob) {
           reject(new Error("Failed to generate image"));
@@ -276,7 +279,8 @@ export function shareCompareImage(p1, p2) {
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: name1 + " vs " + name2 + " — Barracks CDL Stats"
+            title: name1 + " vs " + name2 + " — Barracks CDL Stats",
+            url: shareUrl
           }).then(resolve).catch(resolve);
         } else {
           var link = document.createElement("a");
@@ -302,7 +306,8 @@ export function shareCompareImage(p1, p2) {
  *   seasonKd, seasonHpK10, seasonSndKpr,
  *   catLabel, catSub, direction, threshold, isKd,
  *   dataPoints: [{value, opp, oppColor, kills, deaths, won}],
- *   hits, total, hitPct, avg
+ *   hits, total, hitPct, avg,
+ *   shareUrl (optional — included in navigator.share)
  * }
  */
 export function renderLineCard(data) {
@@ -493,6 +498,7 @@ export function renderLineCard(data) {
 
 /**
  * Share or download a line check card image.
+ * Now includes the shareable URL so recipients get a clickable link.
  */
 export function shareLineCard(data) {
   return new Promise(function(resolve, reject) {
@@ -500,6 +506,9 @@ export function shareLineCard(data) {
       var canvas = renderLineCard(data);
       var name = data.gamertag || "player";
       var filename = "barracks-" + name.replace(/\s+/g, "-") + "-" + (data.direction || "over") + "-" + (data.threshold || "") + "-" + (data.catLabel || "line").replace(/\s+/g, "-");
+
+      // Build share URL — use the one passed from App.jsx if available, otherwise construct it
+      var shareUrl = data.shareUrl || (window.location.origin + window.location.pathname + "?line=" + encodeURIComponent([name, data.catLabel || "", data.direction || "over", data.threshold || "", "10"].join(",")));
 
       canvas.toBlob(function(blob) {
         if (!blob) {
@@ -510,7 +519,8 @@ export function shareLineCard(data) {
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: name + " " + (data.direction || "over") + " " + (data.threshold || "") + " " + (data.catLabel || "") + " — Barracks"
+            title: name + " " + (data.direction || "over") + " " + (data.threshold || "") + " " + (data.catLabel || "") + " — Barracks",
+            url: shareUrl
           }).then(resolve).catch(resolve);
         } else {
           var link = document.createElement("a");

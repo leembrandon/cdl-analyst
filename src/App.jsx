@@ -1248,6 +1248,6 @@ export default function App() {
       {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
-    <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>Data via <a href="https://www.breakingpoint.gg" target="_blank" rel="noopener" style={{color: "#666", textDecoration: "underline"}}>BreakingPoint.gg</a></p></div>
+    <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>
   </div>;
 }

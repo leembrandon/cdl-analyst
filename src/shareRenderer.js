@@ -291,3 +291,237 @@ export function shareCompareImage(p1, p2) {
     }
   });
 }
+
+// ─── LINE CHECK CARD ────────────────────────────────────────
+
+/**
+ * Render a CDL prop line check result as a Canvas image.
+ *
+ * data = {
+ *   gamertag, role, teamAbbr, teamColor,
+ *   seasonKd, seasonHpK10, seasonSndKpr,
+ *   catLabel, catSub, direction, threshold, isKd,
+ *   dataPoints: [{value, opp, oppColor, kills, deaths, won}],
+ *   hits, total, hitPct, avg
+ * }
+ */
+export function renderLineCard(data) {
+  var pts = data.dataPoints || [];
+  var maxBubbles = Math.min(pts.length, 20);
+  var BUBBLE_SIZE = 28;
+  var BUBBLE_GAP = 6;
+  var bubblesPerRow = Math.floor((CARD_WIDTH - CARD_PADDING * 2 + BUBBLE_GAP) / (BUBBLE_SIZE + BUBBLE_GAP));
+  var bubbleRows = Math.ceil(maxBubbles / bubblesPerRow);
+  var bubblesH = bubbleRows * (BUBBLE_SIZE + 18) + 8;
+
+  // Game log rows
+  var LOG_ROW_H = 26;
+  var logRows = Math.min(pts.length, 10);
+  var logHeaderH = 24;
+  var logH = logRows > 0 ? logHeaderH + (logRows * LOG_ROW_H) + 8 : 0;
+
+  // Card sections
+  var headerH = 40;
+  var playerH = 68;
+  var resultH = 80;
+  var footerH = 36;
+  var cardHeight = headerH + playerH + resultH + bubblesH + logH + footerH;
+
+  var scale = 2;
+  var canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH * scale;
+  canvas.height = cardHeight * scale;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  // Background
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
+
+  var y = 0;
+  var mid = CARD_WIDTH / 2;
+
+  // --- Header ---
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, headerH, 0, "rgba(233,69,96,0.08)");
+  drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
+  drawText(ctx, "LINE CHECK", CARD_WIDTH - CARD_PADDING, 12, {size: 10, weight: "700", color: TEXT_DIM, align: "right"});
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
+  y = headerH;
+
+  // --- Player info ---
+  var teamColor = data.teamColor || "#888";
+
+  // Team color accent bar
+  fillRoundedRect(ctx, CARD_PADDING, y + 14, 4, 40, 2, teamColor);
+
+  drawText(ctx, data.gamertag || "?", CARD_PADDING + 16, y + 12, {size: 20, weight: "900", color: TEXT_WHITE, align: "left"});
+
+  var roleText = (data.role || "") + (data.role && data.teamAbbr ? " · " : "") + (data.teamAbbr || "");
+  drawText(ctx, roleText, CARD_PADDING + 16, y + 36, {size: 11, weight: "400", color: TEXT_DIM, align: "left"});
+
+  // Season stats on the right
+  var statX = CARD_WIDTH - CARD_PADDING;
+  drawText(ctx, "K/D", statX - 120, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
+  drawText(ctx, (data.seasonKd || 0).toFixed(2), statX - 120, y + 24, {size: 15, weight: "800", color: kdColor(data.seasonKd || 0), align: "center"});
+
+  drawText(ctx, "HP K/10", statX - 60, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
+  drawText(ctx, (data.seasonHpK10 || 0).toFixed(1), statX - 60, y + 24, {size: 15, weight: "800", color: "#aaaaaa", align: "center"});
+
+  drawText(ctx, "SnD KPR", statX, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
+  drawText(ctx, (data.seasonSndKpr || 0).toFixed(2), statX, y + 24, {size: 15, weight: "800", color: "#aaaaaa", align: "center"});
+
+  y += playerH;
+
+  // --- Divider ---
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+  y += 1;
+
+  // --- Result section ---
+  var hitColor = data.hitPct >= 60 ? GREEN : data.hitPct >= 40 ? YELLOW : RED;
+  var resultBg = data.hitPct >= 60 ? "rgba(82,183,136,0.06)" : data.hitPct >= 40 ? "rgba(255,209,102,0.06)" : "rgba(255,107,107,0.06)";
+
+  ctx.fillStyle = resultBg;
+  ctx.fillRect(0, y, CARD_WIDTH, resultH);
+
+  // Direction + line label
+  var dirLabel = (data.direction || "over").toUpperCase() + " " + (data.isKd ? Number(data.threshold).toFixed(2) : data.threshold);
+  drawText(ctx, dirLabel, CARD_PADDING, y + 14, {size: 16, weight: "900", color: hitColor, align: "left"});
+  drawText(ctx, data.catLabel || "", CARD_PADDING, y + 36, {size: 11, weight: "400", color: TEXT_DIM, align: "left"});
+  if (data.catSub) {
+    drawText(ctx, data.catSub, CARD_PADDING, y + 52, {size: 10, weight: "400", color: TEXT_MUTED, align: "left"});
+  }
+
+  // Hit count
+  drawText(ctx, data.hits + "/" + data.total, CARD_WIDTH - CARD_PADDING, y + 10, {size: 36, weight: "900", color: hitColor, align: "right"});
+  drawText(ctx, data.hitPct.toFixed(0) + "%", CARD_WIDTH - CARD_PADDING, y + 52, {size: 14, weight: "800", color: hitColor, align: "right"});
+
+  y += resultH;
+
+  // --- Bubbles ---
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+  y += 8;
+
+  for (var i = 0; i < maxBubbles; i++) {
+    var p = pts[i];
+    var row = Math.floor(i / bubblesPerRow);
+    var col = i % bubblesPerRow;
+    var bx = CARD_PADDING + col * (BUBBLE_SIZE + BUBBLE_GAP);
+    var by = y + row * (BUBBLE_SIZE + 18);
+
+    var val = p.value;
+    var isHit = data.direction === "over" ? val >= data.threshold : val < data.threshold;
+    var bubbleColor = isHit ? "rgba(82,183,136,0.25)" : "rgba(255,107,107,0.2)";
+    var textColor = isHit ? GREEN : RED;
+
+    // Bubble circle
+    ctx.beginPath();
+    ctx.arc(bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE / 2, BUBBLE_SIZE / 2, 0, Math.PI * 2);
+    ctx.fillStyle = bubbleColor;
+    ctx.fill();
+
+    // Value text
+    var display = data.isKd ? val.toFixed(1) : String(Math.round(val));
+    drawText(ctx, display, bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE / 2 - 5, {size: 10, weight: "800", color: textColor, align: "center"});
+
+    // Opponent label below
+    drawText(ctx, p.opp || "?", bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE + 2, {size: 8, weight: "400", color: p.oppColor || TEXT_MUTED, align: "center"});
+  }
+
+  y += bubblesH;
+
+  // --- Game log ---
+  if (logRows > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 4;
+
+    // Log header
+    var colW = (CARD_WIDTH - CARD_PADDING * 2);
+    var cols = [
+      {label: "OPP", x: CARD_PADDING, align: "left"},
+      {label: "K", x: CARD_PADDING + colW * 0.35, align: "center"},
+      {label: "D", x: CARD_PADDING + colW * 0.48, align: "center"},
+      {label: "K/D", x: CARD_PADDING + colW * 0.62, align: "center"},
+      {label: "W/L", x: CARD_PADDING + colW * 0.78, align: "center"},
+      {label: data.isKd ? "K/D" : "VAL", x: CARD_WIDTH - CARD_PADDING, align: "right"}
+    ];
+
+    cols.forEach(function(c) {
+      drawText(ctx, c.label, c.x, y, {size: 8, weight: "700", color: TEXT_MUTED, align: c.align});
+    });
+    y += logHeaderH;
+
+    for (var j = 0; j < logRows; j++) {
+      var g = pts[j];
+      var gkd = g.deaths > 0 ? (g.kills / g.deaths) : g.kills;
+      var gVal = g.value;
+      var gHit = data.direction === "over" ? gVal >= data.threshold : gVal < data.threshold;
+
+      // Alternating row bg
+      if (j % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.02)";
+        ctx.fillRect(CARD_PADDING, y - 2, colW, LOG_ROW_H);
+      }
+
+      drawText(ctx, g.opp || "?", cols[0].x, y + 2, {size: 11, weight: "700", color: g.oppColor || "#888888", align: "left"});
+      drawText(ctx, String(g.kills), cols[1].x, y + 2, {size: 11, weight: "700", color: TEXT_WHITE, align: "center"});
+      drawText(ctx, String(g.deaths), cols[2].x, y + 2, {size: 11, weight: "400", color: "#aaaaaa", align: "center"});
+      drawText(ctx, gkd.toFixed(2), cols[3].x, y + 2, {size: 11, weight: "700", color: kdColor(gkd), align: "center"});
+      drawText(ctx, g.won ? "W" : "L", cols[4].x, y + 2, {size: 11, weight: "800", color: g.won ? GREEN : RED, align: "center"});
+
+      // Highlighted value column
+      var valDisplay = data.isKd ? gVal.toFixed(2) : String(Math.round(gVal));
+      drawText(ctx, valDisplay, cols[5].x, y + 2, {size: 11, weight: "800", color: gHit ? GREEN : RED, align: "right"});
+
+      y += LOG_ROW_H;
+    }
+    y += 4;
+  }
+
+  // --- Footer ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, y, CARD_WIDTH, 1);
+  y += 1;
+
+  drawText(ctx, "thebarracks.vercel.app", mid, y + 10, {size: 9, weight: "400", color: "rgba(255,255,255,0.25)", align: "center"});
+  drawText(ctx, "Avg: " + (data.isKd ? data.avg.toFixed(2) : data.avg.toFixed(1)) + " / " + (data.catSub && data.catSub.indexOf("maps") !== -1 ? "map" : "series"), CARD_WIDTH - CARD_PADDING, y + 10, {size: 9, weight: "400", color: TEXT_MUTED, align: "right"});
+
+  return canvas;
+}
+
+/**
+ * Share or download a line check card image.
+ */
+export function shareLineCard(data) {
+  return new Promise(function(resolve, reject) {
+    try {
+      var canvas = renderLineCard(data);
+      var name = data.gamertag || "player";
+      var filename = "barracks-" + name.replace(/\s+/g, "-") + "-" + (data.direction || "over") + "-" + (data.threshold || "") + "-" + (data.catLabel || "line").replace(/\s+/g, "-");
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          reject(new Error("Failed to generate image"));
+          return;
+        }
+        var file = new File([blob], filename + ".png", {type: "image/png"});
+        if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+          navigator.share({
+            files: [file],
+            title: name + " " + (data.direction || "over") + " " + (data.threshold || "") + " " + (data.catLabel || "") + " — Barracks"
+          }).then(resolve).catch(resolve);
+        } else {
+          var link = document.createElement("a");
+          link.download = filename + ".png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          resolve();
+        }
+      }, "image/png");
+    } catch (e) {
+      reject(e);
+    }
+  });
+}

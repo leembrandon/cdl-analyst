@@ -942,61 +942,96 @@ function CDLLineCheck(props) {
   var minVal = dataPoints.length > 0 ? Math.min.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
   var maxVal = dataPoints.length > 0 ? Math.max.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
 
-  // Line position assessment
-  var lineAssessment = "";
-  var lineAssessColor = "#888";
-  if (hasThreshold && dataPoints.length > 0) {
-    var diff = threshNum - avg;
-    var diffPct = avg > 0 ? Math.abs(diff / avg * 100) : 0;
-    if (direction === "over") {
-      if (threshNum < avg - stdDev * 0.5) { lineAssessment = "Line well below avg — strong over"; lineAssessColor = "#52b788"; }
-      else if (threshNum < avg) { lineAssessment = "Line below avg — lean over"; lineAssessColor = "#a3be8c"; }
-      else if (threshNum < avg + stdDev * 0.5) { lineAssessment = "Line near avg — coin flip"; lineAssessColor = "#ffd166"; }
-      else { lineAssessment = "Line above avg — risky over"; lineAssessColor = "#ff6b6b"; }
-    } else {
-      if (threshNum > avg + stdDev * 0.5) { lineAssessment = "Line well above avg — strong under"; lineAssessColor = "#52b788"; }
-      else if (threshNum > avg) { lineAssessment = "Line above avg — lean under"; lineAssessColor = "#a3be8c"; }
-      else if (threshNum > avg - stdDev * 0.5) { lineAssessment = "Line near avg — coin flip"; lineAssessColor = "#ffd166"; }
-      else { lineAssessment = "Line below avg — risky under"; lineAssessColor = "#ff6b6b"; }
-    }
-  }
+  // Line position assessment — smarter, accounts for books setting lines near avg
+  var lineInsights = [];
+  if (hasThreshold && dataPoints.length >= 3) {
+    // Recent trend: last 3 games vs full sample
+    var recentN = Math.min(3, dataPoints.length);
+    var recentSum = 0;
+    for (var ri = 0; ri < recentN; ri++) recentSum += dataPoints[ri].value;
+    var recentAvg = recentSum / recentN;
+    var trendDiff = recentAvg - avg;
+    var trending = Math.abs(trendDiff) > stdDev * 0.3;
 
-  // Opponent breakdown
-  var oppBreakdown = [];
-  if (dataPoints.length > 0) {
-    var oppMap = {};
+    // Recent hit rate (last 3)
+    var recentHits = 0;
+    for (var rj = 0; rj < recentN; rj++) {
+      if (direction === "over" ? dataPoints[rj].value >= threshNum : dataPoints[rj].value < threshNum) recentHits++;
+    }
+
+    // Median tells you more than avg when distribution is skewed
+    var medianVsLine = median - threshNum;
+    var avgVsLine = avg - threshNum;
+    var medianDisagrees = (medianVsLine > 0 && avgVsLine <= 0) || (medianVsLine < 0 && avgVsLine >= 0);
+
+    // Floor analysis: how often do they go significantly below the line
+    var floorCount = 0;
+    var ceilingCount = 0;
+    var cushion = isKd ? 0.08 : 3;
     dataPoints.forEach(function(d) {
-      var key = d.opp;
-      if (!oppMap[key]) { oppMap[key] = {opp: key, color: d.oppColor || "#888", values: [], wins: 0, losses: 0}; }
-      oppMap[key].values.push(d.value);
-      if (d.won || d.wonSeries) oppMap[key].wins++; else oppMap[key].losses++;
+      if (d.value < threshNum - cushion) floorCount++;
+      if (d.value > threshNum + cushion) ceilingCount++;
     });
-    Object.keys(oppMap).forEach(function(key) {
-      var o = oppMap[key];
-      var oSum = 0;
-      o.values.forEach(function(v) { oSum += v; });
-      var oAvg = oSum / o.values.length;
-      var oHits = 0;
-      if (hasThreshold) {
-        o.values.forEach(function(v) {
-          if (direction === "over" ? v >= threshNum : v < threshNum) oHits++;
-        });
+
+    // Consistency factor
+    var cv = avg > 0 ? (stdDev / avg) : 0;
+
+    // Build insights array — each one is {text, color, priority}
+    // [1] Hit rate is the primary signal
+    if (hitPct >= 75) {
+      lineInsights.push({text: "Hits " + direction + " in " + hitPct.toFixed(0) + "% of games — strong pattern", color: "#52b788", priority: 1});
+    } else if (hitPct >= 60) {
+      lineInsights.push({text: "Hits " + direction + " in " + hitPct.toFixed(0) + "% — leans favorable", color: "#a3be8c", priority: 1});
+    } else if (hitPct <= 25) {
+      lineInsights.push({text: "Only hits " + direction + " " + hitPct.toFixed(0) + "% of the time — fade this", color: "#ff6b6b", priority: 1});
+    } else if (hitPct <= 40) {
+      lineInsights.push({text: "Hits " + direction + " just " + hitPct.toFixed(0) + "% — below average spot", color: "#ff6b6b", priority: 1});
+    } else {
+      lineInsights.push({text: "Hits " + direction + " " + hitPct.toFixed(0) + "% — true coin flip", color: "#ffd166", priority: 1});
+    }
+
+    // [2] Median disagreement — the hidden edge
+    if (medianDisagrees && direction === "over") {
+      if (median > threshNum) {
+        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is above line — avg dragged down by outlier busts", color: "#52b788", priority: 2});
+      } else {
+        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is below line — avg inflated by blowup games", color: "#ff6b6b", priority: 2});
       }
-      oppBreakdown.push({
-        opp: o.opp,
-        color: o.color,
-        games: o.values.length,
-        avg: oAvg,
-        hitRate: hasThreshold ? (oHits / o.values.length * 100) : 0,
-        hits: oHits,
-        wins: o.wins,
-        losses: o.losses,
-        best: Math.max.apply(null, o.values),
-        worst: Math.min.apply(null, o.values)
-      });
-    });
-    // Sort by games played desc
-    oppBreakdown.sort(function(a, b) { return b.games - a.games; });
+    } else if (medianDisagrees && direction === "under") {
+      if (median < threshNum) {
+        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is below line — avg inflated by outliers", color: "#52b788", priority: 2});
+      } else {
+        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is above line — avg dragged down by bad games", color: "#ff6b6b", priority: 2});
+      }
+    }
+
+    // [3] Trend
+    if (trending) {
+      var trendDir = trendDiff > 0 ? "up" : "down";
+      var trendGood = (direction === "over" && trendDiff > 0) || (direction === "under" && trendDiff < 0);
+      lineInsights.push({text: "Trending " + trendDir + " — L3 avg " + (isKd ? recentAvg.toFixed(2) : recentAvg.toFixed(1)) + " vs " + (isKd ? avg.toFixed(2) : avg.toFixed(1)) + " overall", color: trendGood ? "#52b788" : "#ff6b6b", priority: 3});
+    }
+
+    // [4] Consistency warning
+    if (cv >= 0.3) {
+      lineInsights.push({text: "High variance player (\u00b1" + (isKd ? stdDev.toFixed(2) : stdDev.toFixed(1)) + ") — anything can happen", color: "#ffd166", priority: 4});
+    } else if (cv < 0.15 && hitPct >= 55) {
+      lineInsights.push({text: "Very consistent — tight range makes this " + direction + " reliable", color: "#52b788", priority: 4});
+    }
+
+    // [5] Floor/ceiling
+    if (direction === "over" && floorCount === 0 && dataPoints.length >= 5) {
+      lineInsights.push({text: "Never dropped more than " + (isKd ? cushion.toFixed(2) : cushion) + " below line in sample — high floor", color: "#52b788", priority: 5});
+    }
+    if (direction === "over" && ceilingCount >= dataPoints.length * 0.5) {
+      lineInsights.push({text: Math.round(ceilingCount / dataPoints.length * 100) + "% of games were " + (isKd ? cushion.toFixed(2) : cushion) + "+ above line — room to spare", color: "#52b788", priority: 5});
+    }
+    if (direction === "under" && ceilingCount === 0 && dataPoints.length >= 5) {
+      lineInsights.push({text: "Never exceeded line by more than " + (isKd ? cushion.toFixed(2) : cushion) + " in sample — low ceiling", color: "#52b788", priority: 5});
+    }
+
+    // Sort by priority
+    lineInsights.sort(function(a, b) { return a.priority - b.priority; });
   }
 
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
@@ -1200,85 +1235,18 @@ function CDLLineCheck(props) {
         </div>;
       })()}
 
-      {/* Assessment */}
-      {hasThreshold && lineAssessment && <div className="rounded-lg p-2.5" style={{
-        background: lineAssessColor === "#52b788" ? "rgba(82,183,136,0.08)" : lineAssessColor === "#a3be8c" ? "rgba(163,190,140,0.08)" : lineAssessColor === "#ffd166" ? "rgba(255,209,102,0.08)" : "rgba(255,107,107,0.08)",
-        border: "1px solid " + lineAssessColor + "22"
-      }}>
-        <div className="flex items-center gap-2">
-          <span style={{fontSize: "14px"}}>{lineAssessColor === "#52b788" ? "\uD83D\uDFE2" : lineAssessColor === "#a3be8c" ? "\uD83D\uDFE1" : lineAssessColor === "#ffd166" ? "\uD83D\uDFE1" : "\uD83D\uDD34"}</span>
-          <div>
-            <div className="text-xs font-bold" style={{color: lineAssessColor}}>{lineAssessment}</div>
-            <div style={{fontSize: "9px", color: "#555"}}>Avg {isKd ? avg.toFixed(2) : avg.toFixed(1)} vs line {isKd ? threshNum.toFixed(2) : threshNum} ({avg > threshNum ? "+" : ""}{isKd ? (avg - threshNum).toFixed(2) : (avg - threshNum).toFixed(1)} diff)</div>
-          </div>
-        </div>
-      </div>}
-
-      {/* Consistency grade */}
-      {dataPoints.length >= 5 && <div className="mt-2 flex items-center gap-2">
-        <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Consistency:</span>
-        {(function() {
-          var cv = avg > 0 ? (stdDev / avg) : 0;
-          var grade = cv < 0.15 ? "Very consistent" : cv < 0.25 ? "Consistent" : cv < 0.35 ? "Moderate variance" : "Boom or bust";
-          var gColor = cv < 0.15 ? "#52b788" : cv < 0.25 ? "#a3be8c" : cv < 0.35 ? "#ffd166" : "#ff6b6b";
-          return <span className="text-xs font-bold px-2 py-0.5 rounded" style={{background: gColor + "15", color: gColor, fontSize: "10px"}}>{grade}</span>;
-        })()}
-      </div>}
-    </div>}
-
-    {/* ── OPPONENT BREAKDOWN ───────────────────────────────── */}
-    {oppBreakdown.length > 1 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{color: "#555"}}>Opponent breakdown</div>
-
-      <div className="space-y-1.5">
-        {oppBreakdown.map(function(o) {
-          var barW = avg > 0 ? Math.min(100, o.avg / (maxVal * 1.05) * 100) : 50;
-          var isAboveAvg = o.avg >= avg;
-          return <div key={o.opp} className="rounded-lg p-2" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.03)"}}>
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold" style={{color: o.color, minWidth: "32px"}}>{o.opp}</span>
-                <span style={{fontSize: "9px", color: "#444"}}>{o.games} {activeCat.source === "map" ? (o.games === 1 ? "map" : "maps") : (o.games === 1 ? "series" : "series")}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold" style={{color: isAboveAvg ? "#52b788" : "#ff6b6b"}}>{isKd ? o.avg.toFixed(2) : o.avg.toFixed(1)} avg</span>
-                {hasThreshold && <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{
-                  background: o.hitRate >= 60 ? "rgba(82,183,136,0.15)" : o.hitRate >= 40 ? "rgba(255,209,102,0.15)" : "rgba(255,107,107,0.15)",
-                  color: o.hitRate >= 60 ? "#52b788" : o.hitRate >= 40 ? "#ffd166" : "#ff6b6b",
-                  fontSize: "10px"
-                }}>{o.hits}/{o.games} ({o.hitRate.toFixed(0)}%)</span>}
-              </div>
-            </div>
-            {/* Mini bar */}
-            <div className="relative rounded-full" style={{height: "4px", background: "rgba(255,255,255,0.04)"}}>
-              <div className="absolute left-0 top-0 bottom-0 rounded-full" style={{width: barW + "%", background: isAboveAvg ? "rgba(82,183,136,0.4)" : "rgba(255,107,107,0.3)"}} />
-            </div>
+      {/* Insights */}
+      {lineInsights.length > 0 && <div className="space-y-1.5 mt-3">
+        {lineInsights.map(function(ins, i) {
+          return <div key={i} className="rounded-lg px-2.5 py-2 flex items-start gap-2" style={{
+            background: ins.color === "#52b788" ? "rgba(82,183,136,0.07)" : ins.color === "#a3be8c" ? "rgba(163,190,140,0.07)" : ins.color === "#ffd166" ? "rgba(255,209,102,0.07)" : "rgba(255,107,107,0.07)",
+            border: "1px solid " + ins.color + "18"
+          }}>
+            <span style={{fontSize: "7px", marginTop: "4px", color: ins.color}}>{"\u25CF"}</span>
+            <span className="text-xs" style={{color: ins.color, lineHeight: "1.4"}}>{ins.text}</span>
           </div>;
         })}
-      </div>
-
-      {/* Best/worst opponents */}
-      {oppBreakdown.length >= 2 && (function() {
-        var best = oppBreakdown.slice().sort(function(a, b) { return b.avg - a.avg; })[0];
-        var worst = oppBreakdown.slice().sort(function(a, b) { return a.avg - b.avg; })[0];
-        if (best.opp === worst.opp) return null;
-        return <div className="flex gap-2 mt-2">
-          <div className="flex-1 rounded-lg p-2" style={{background: "rgba(82,183,136,0.06)", border: "1px solid rgba(82,183,136,0.1)"}}>
-            <div style={{fontSize: "9px", color: "#52b788", textTransform: "uppercase"}}>Best vs</div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold" style={{color: best.color}}>{best.opp}</span>
-              <span className="text-xs font-bold" style={{color: "#52b788"}}>{isKd ? best.avg.toFixed(2) : best.avg.toFixed(1)}</span>
-            </div>
-          </div>
-          <div className="flex-1 rounded-lg p-2" style={{background: "rgba(255,107,107,0.06)", border: "1px solid rgba(255,107,107,0.1)"}}>
-            <div style={{fontSize: "9px", color: "#ff6b6b", textTransform: "uppercase"}}>Worst vs</div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold" style={{color: worst.color}}>{worst.opp}</span>
-              <span className="text-xs font-bold" style={{color: "#ff6b6b"}}>{isKd ? worst.avg.toFixed(2) : worst.avg.toFixed(1)}</span>
-            </div>
-          </div>
-        </div>;
-      })()}
+      </div>}
     </div>}
 
     {/* Game log table */}

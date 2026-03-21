@@ -863,7 +863,7 @@ function MatchupPaceContext(props) {
   var player = props.player;
   var analysis = props.analysis;
   var activeCat = props.activeCat;
-  var avg = props.playerAvg; // player's historical average for this line
+  var avg = props.avg; // player's historical average for this line
   var threshold = props.threshold;
   var direction = props.direction;
   var [selectedOpp, setSelectedOpp] = useState(null);
@@ -946,7 +946,7 @@ function MatchupPaceContext(props) {
     }
   }
 
-  return <div className="rounded-xl overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+  return <div className="rounded-xl overflow-hidden mb-3" onClick={function(e) { e.stopPropagation(); }} style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
     {/* Header */}
     <div className="px-3 py-2 flex items-center justify-between" style={{background: "rgba(83,168,182,0.08)", borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
       <div className="flex items-center gap-2">
@@ -965,7 +965,7 @@ function MatchupPaceContext(props) {
         {upcomingOpps.length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">
           {upcomingOpps.map(function(opp, i) {
             var isSelected = selectedOpp && selectedOpp.teamId === opp.teamId;
-            return <button key={opp.teamId + "-" + i} onClick={function() { setSelectedOpp(opp); setShowPicker(false); }} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+            return <button type="button" key={opp.teamId + "-" + i} onClick={function(e) { e.stopPropagation(); e.preventDefault(); setSelectedOpp(opp); setShowPicker(false); }} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
               background: isSelected ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.04)",
               border: isSelected ? "1px solid rgba(83,168,182,0.4)" : "1px solid rgba(255,255,255,0.06)",
               color: isSelected ? "#53a8b6" : "#888"
@@ -975,7 +975,7 @@ function MatchupPaceContext(props) {
               <span style={{fontSize: "9px", color: "#555", fontWeight: 400}}>{timeUntil(opp.datetime)}</span>
             </button>;
           })}
-          <button onClick={function() { setShowPicker(!showPicker); }} className="px-2 py-1.5 rounded-lg text-xs font-semibold" style={{background: "rgba(255,255,255,0.04)", color: "#555", border: "1px solid rgba(255,255,255,0.06)"}}>
+          <button type="button" onClick={function(e) { e.stopPropagation(); e.preventDefault(); setShowPicker(!showPicker); }} className="px-2 py-1.5 rounded-lg text-xs font-semibold" style={{background: "rgba(255,255,255,0.04)", color: "#555", border: "1px solid rgba(255,255,255,0.06)"}}>
             {showPicker ? "\u2715" : "+"} {showPicker ? "Close" : "Other"}
           </button>
         </div>}
@@ -984,7 +984,7 @@ function MatchupPaceContext(props) {
         {(showPicker || upcomingOpps.length === 0) && <div className="flex flex-wrap gap-1.5">
           {allTeams.map(function(t) {
             var isSelected = selectedOpp && selectedOpp.teamId === t.teamId;
-            return <button key={t.teamId} onClick={function() { setSelectedOpp(t); setShowPicker(false); }} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all" style={{
+            return <button type="button" key={t.teamId} onClick={function(e) { e.stopPropagation(); e.preventDefault(); setSelectedOpp(t); setShowPicker(false); }} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all" style={{
               background: isSelected ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.03)",
               border: isSelected ? "1px solid rgba(83,168,182,0.3)" : "1px solid rgba(255,255,255,0.04)",
               color: isSelected ? "#53a8b6" : "#666"

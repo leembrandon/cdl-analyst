@@ -25,7 +25,7 @@ async function fetchTeams() {
 
 async function fetchMatches() {
   // match_view joins matches + teams + events (gives team names, event names)
-  return mySupaFetch("match_view", "select=*&status=neq.completed&order=scheduled_at.asc");
+   return mySupaFetch("match_view", "select=*&status=neq.completed&event_is_cdl=eq.true&order=scheduled_at.asc");
 }
 
 async function fetchRosters() {

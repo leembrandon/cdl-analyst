@@ -3,8 +3,8 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 const CURRENT_EVENT_ID = 102;
 
 // Your Supabase (data synced by Python script)
-const MY_SUPABASE_API = "https://xtxlopuvadwwuzvytqgo.supabase.co/rest/v1";
-const MY_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0eGxvcHV2YWR3d3V6dnl0cWdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1OTk2MjEsImV4cCI6MjA4OTE3NTYyMX0.MP8SGkba0Ye-d-RSRgEmfE6A4KmFTH5fG9S9aJoSnRI";
+const MY_SUPABASE_API = import.meta.env.VITE_SUPABASE_URL;
+const MY_SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
 async function mySupaFetch(table, query) {
   var url = MY_SUPABASE_API + "/" + table + "?" + (query || "select=*");

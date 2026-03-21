@@ -2,13 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 
 const CURRENT_EVENT_ID = 102;
 
-// Your Supabase (data synced by Python script)
-const MY_SUPABASE_API = import.meta.env.VITE_SUPABASE_URL;
-const MY_SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
-
+// Data fetched through /api/supabase proxy — credentials stay server-side
 async function mySupaFetch(table, query) {
-  var url = MY_SUPABASE_API + "/" + table + "?" + (query || "select=*");
-  var res = await fetch(url, {headers: {"apikey": MY_SUPABASE_KEY, "Authorization": "Bearer " + MY_SUPABASE_KEY}});
+  var url = "/api/supabase?table=" + encodeURIComponent(table) + "&query=" + encodeURIComponent(query || "select=*");
+  var res = await fetch(url);
   if (!res.ok) throw new Error("Supabase fetch failed (" + res.status + ")");
   return res.json();
 }

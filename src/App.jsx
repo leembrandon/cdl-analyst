@@ -922,116 +922,44 @@ function CDLLineCheck(props) {
     avg = sum / dataPoints.length;
   }
 
-  // Median
-  var median = 0;
-  if (dataPoints.length > 0) {
-    var sorted = dataPoints.map(function(d) { return d.value; }).slice().sort(function(a, b) { return a - b; });
-    var mid = Math.floor(sorted.length / 2);
-    median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-
-  // Standard deviation
-  var stdDev = 0;
-  if (dataPoints.length > 1) {
-    var sqDiffs = 0;
-    dataPoints.forEach(function(d) { sqDiffs += Math.pow(d.value - avg, 2); });
-    stdDev = Math.sqrt(sqDiffs / (dataPoints.length - 1));
-  }
-
-  // Min / Max for distribution context
-  var minVal = dataPoints.length > 0 ? Math.min.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
-  var maxVal = dataPoints.length > 0 ? Math.max.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
-
-  // Line position assessment — smarter, accounts for books setting lines near avg
-  var lineInsights = [];
-  if (hasThreshold && dataPoints.length >= 3) {
-    // Recent trend: last 3 games vs full sample
-    var recentN = Math.min(3, dataPoints.length);
-    var recentSum = 0;
-    for (var ri = 0; ri < recentN; ri++) recentSum += dataPoints[ri].value;
-    var recentAvg = recentSum / recentN;
-    var trendDiff = recentAvg - avg;
-    var trending = Math.abs(trendDiff) > stdDev * 0.3;
-
-    // Recent hit rate (last 3)
-    var recentHits = 0;
-    for (var rj = 0; rj < recentN; rj++) {
-      if (direction === "over" ? dataPoints[rj].value >= threshNum : dataPoints[rj].value < threshNum) recentHits++;
-    }
-
-    // Median tells you more than avg when distribution is skewed
-    var medianVsLine = median - threshNum;
-    var avgVsLine = avg - threshNum;
-    var medianDisagrees = (medianVsLine > 0 && avgVsLine <= 0) || (medianVsLine < 0 && avgVsLine >= 0);
-
-    // Floor analysis: how often do they go significantly below the line
-    var floorCount = 0;
-    var ceilingCount = 0;
-    var cushion = isKd ? 0.08 : 3;
+  // Map-specific splits — only for per-map categories (map1, map2, map3)
+  var mapSplits = [];
+  if (activeCat.source === "map" && dataPoints.length > 0) {
+    var mapGroups = {};
     dataPoints.forEach(function(d) {
-      if (d.value < threshNum - cushion) floorCount++;
-      if (d.value > threshNum + cushion) ceilingCount++;
+      var mn = d.mapName || "Unknown";
+      if (!mapGroups[mn]) { mapGroups[mn] = {map: mn, values: [], kills: 0, deaths: 0, wins: 0, total: 0}; }
+      mapGroups[mn].values.push(d.value);
+      mapGroups[mn].kills += d.kills;
+      mapGroups[mn].deaths += d.deaths;
+      if (d.won) mapGroups[mn].wins++;
+      mapGroups[mn].total++;
     });
-
-    // Consistency factor
-    var cv = avg > 0 ? (stdDev / avg) : 0;
-
-    // Build insights array — each one is {text, color, priority}
-    // [1] Hit rate is the primary signal
-    if (hitPct >= 75) {
-      lineInsights.push({text: "Hits " + direction + " in " + hitPct.toFixed(0) + "% of games — strong pattern", color: "#52b788", priority: 1});
-    } else if (hitPct >= 60) {
-      lineInsights.push({text: "Hits " + direction + " in " + hitPct.toFixed(0) + "% — leans favorable", color: "#a3be8c", priority: 1});
-    } else if (hitPct <= 25) {
-      lineInsights.push({text: "Only hits " + direction + " " + hitPct.toFixed(0) + "% of the time — fade this", color: "#ff6b6b", priority: 1});
-    } else if (hitPct <= 40) {
-      lineInsights.push({text: "Hits " + direction + " just " + hitPct.toFixed(0) + "% — below average spot", color: "#ff6b6b", priority: 1});
-    } else {
-      lineInsights.push({text: "Hits " + direction + " " + hitPct.toFixed(0) + "% — true coin flip", color: "#ffd166", priority: 1});
-    }
-
-    // [2] Median disagreement — the hidden edge
-    if (medianDisagrees && direction === "over") {
-      if (median > threshNum) {
-        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is above line — avg dragged down by outlier busts", color: "#52b788", priority: 2});
-      } else {
-        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is below line — avg inflated by blowup games", color: "#ff6b6b", priority: 2});
+    Object.keys(mapGroups).forEach(function(mn) {
+      var g = mapGroups[mn];
+      var mSum = 0;
+      g.values.forEach(function(v) { mSum += v; });
+      var mAvg = mSum / g.values.length;
+      var mKd = g.deaths > 0 ? (g.kills / g.deaths) : g.kills;
+      var mHits = 0;
+      if (hasThreshold) {
+        g.values.forEach(function(v) {
+          if (direction === "over" ? v >= threshNum : v < threshNum) mHits++;
+        });
       }
-    } else if (medianDisagrees && direction === "under") {
-      if (median < threshNum) {
-        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is below line — avg inflated by outliers", color: "#52b788", priority: 2});
-      } else {
-        lineInsights.push({text: "Median (" + (isKd ? median.toFixed(2) : median.toFixed(1)) + ") is above line — avg dragged down by bad games", color: "#ff6b6b", priority: 2});
-      }
-    }
-
-    // [3] Trend
-    if (trending) {
-      var trendDir = trendDiff > 0 ? "up" : "down";
-      var trendGood = (direction === "over" && trendDiff > 0) || (direction === "under" && trendDiff < 0);
-      lineInsights.push({text: "Trending " + trendDir + " — L3 avg " + (isKd ? recentAvg.toFixed(2) : recentAvg.toFixed(1)) + " vs " + (isKd ? avg.toFixed(2) : avg.toFixed(1)) + " overall", color: trendGood ? "#52b788" : "#ff6b6b", priority: 3});
-    }
-
-    // [4] Consistency warning
-    if (cv >= 0.3) {
-      lineInsights.push({text: "High variance player (\u00b1" + (isKd ? stdDev.toFixed(2) : stdDev.toFixed(1)) + ") — anything can happen", color: "#ffd166", priority: 4});
-    } else if (cv < 0.15 && hitPct >= 55) {
-      lineInsights.push({text: "Very consistent — tight range makes this " + direction + " reliable", color: "#52b788", priority: 4});
-    }
-
-    // [5] Floor/ceiling
-    if (direction === "over" && floorCount === 0 && dataPoints.length >= 5) {
-      lineInsights.push({text: "Never dropped more than " + (isKd ? cushion.toFixed(2) : cushion) + " below line in sample — high floor", color: "#52b788", priority: 5});
-    }
-    if (direction === "over" && ceilingCount >= dataPoints.length * 0.5) {
-      lineInsights.push({text: Math.round(ceilingCount / dataPoints.length * 100) + "% of games were " + (isKd ? cushion.toFixed(2) : cushion) + "+ above line — room to spare", color: "#52b788", priority: 5});
-    }
-    if (direction === "under" && ceilingCount === 0 && dataPoints.length >= 5) {
-      lineInsights.push({text: "Never exceeded line by more than " + (isKd ? cushion.toFixed(2) : cushion) + " in sample — low ceiling", color: "#52b788", priority: 5});
-    }
-
-    // Sort by priority
-    lineInsights.sort(function(a, b) { return a.priority - b.priority; });
+      mapSplits.push({
+        map: mn,
+        games: g.total,
+        avg: mAvg,
+        kd: mKd,
+        hitRate: hasThreshold ? (mHits / g.total * 100) : 0,
+        hits: mHits,
+        wins: g.wins,
+        best: Math.max.apply(null, g.values),
+        worst: Math.min.apply(null, g.values)
+      });
+    });
+    mapSplits.sort(function(a, b) { return b.avg - a.avg; });
   }
 
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
@@ -1171,82 +1099,44 @@ function CDLLineCheck(props) {
       </div>
     </div>}
 
-    {/* ── LINE INTELLIGENCE ────────────────────────────────── */}
-    {dataPoints.length >= 3 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{color: "#555"}}>Line intelligence</div>
+    {/* ── MAP SPLITS ────────────────────────────────────────── */}
+    {mapSplits.length > 1 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{color: "#555"}}>By map</div>
 
-      {/* Stats row: Avg / Median / StdDev / Range */}
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
-          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Avg</div>
-          <div className="text-sm font-bold text-white">{isKd ? avg.toFixed(2) : avg.toFixed(1)}</div>
-        </div>
-        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
-          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Median</div>
-          <div className="text-sm font-bold text-white">{isKd ? median.toFixed(2) : median.toFixed(1)}</div>
-        </div>
-        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
-          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Std Dev</div>
-          <div className="text-sm font-bold" style={{color: stdDev > avg * 0.25 ? "#ffd166" : "#aaa"}}>{isKd ? stdDev.toFixed(2) : stdDev.toFixed(1)}</div>
-        </div>
-        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
-          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Range</div>
-          <div className="text-sm font-bold" style={{color: "#aaa"}}>{isKd ? minVal.toFixed(1) : minVal}{"\u2013"}{isKd ? maxVal.toFixed(1) : maxVal}</div>
-        </div>
+      {/* Header */}
+      <div className="grid items-center mb-1 px-1" style={{gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""), fontSize: "9px", color: "#444", textTransform: "uppercase", letterSpacing: "0.3px"}}>
+        <span>Map</span>
+        <span className="text-center">#</span>
+        <span className="text-center">Avg</span>
+        <span className="text-center">K/D</span>
+        {hasThreshold && <span className="text-center">Hit</span>}
       </div>
 
-      {/* Visual distribution bar */}
-      {hasThreshold && (function() {
-        var barMin = Math.min(minVal, threshNum) - (isKd ? 0.1 : 2);
-        var barMax = Math.max(maxVal, threshNum) + (isKd ? 0.1 : 2);
-        var barRange = barMax - barMin || 1;
-        var avgPct = ((avg - barMin) / barRange * 100);
-        var medPct = ((median - barMin) / barRange * 100);
-        var linePct = ((threshNum - barMin) / barRange * 100);
-        var sdLow = Math.max(0, ((avg - stdDev - barMin) / barRange * 100));
-        var sdHigh = Math.min(100, ((avg + stdDev - barMin) / barRange * 100));
-        return <div className="mb-3">
-          <div className="relative rounded-full" style={{height: "28px", background: "rgba(255,255,255,0.04)", overflow: "hidden"}}>
-            {/* StdDev band */}
-            <div className="absolute top-0 bottom-0 rounded-full" style={{left: sdLow + "%", width: (sdHigh - sdLow) + "%", background: "rgba(255,255,255,0.06)"}} />
-            {/* Data point dots */}
-            {dataPoints.map(function(d, i) {
-              var pct = ((d.value - barMin) / barRange * 100);
-              var isHit = hasThreshold ? (direction === "over" ? d.value >= threshNum : d.value < threshNum) : false;
-              return <div key={i} className="absolute rounded-full" style={{
-                left: "calc(" + pct + "% - 3px)", top: "50%", transform: "translateY(-50%)",
-                width: "6px", height: "6px",
-                background: isHit ? "rgba(82,183,136,0.7)" : "rgba(255,107,107,0.5)",
-                opacity: 0.8
-              }} />;
-            })}
-            {/* Average marker */}
-            <div className="absolute" style={{left: "calc(" + avgPct + "% - 1px)", top: "2px", bottom: "2px", width: "2px", background: "#ffd166", borderRadius: "1px"}} />
-            {/* Line marker */}
-            <div className="absolute" style={{left: "calc(" + linePct + "% - 1px)", top: "0", bottom: "0", width: "2px", background: "#e94560", borderRadius: "1px"}} />
-          </div>
-          <div className="flex justify-between mt-1.5">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1"><span style={{width: "8px", height: "2px", background: "#ffd166", display: "inline-block", borderRadius: "1px"}} /><span style={{fontSize: "9px", color: "#666"}}>Avg</span></span>
-              <span className="flex items-center gap-1"><span style={{width: "8px", height: "2px", background: "#e94560", display: "inline-block", borderRadius: "1px"}} /><span style={{fontSize: "9px", color: "#666"}}>Line</span></span>
-              <span className="flex items-center gap-1"><span style={{width: "8px", height: "8px", background: "rgba(255,255,255,0.06)", display: "inline-block", borderRadius: "2px"}} /><span style={{fontSize: "9px", color: "#666"}}>{"\u00b1"}1 SD</span></span>
-            </div>
-          </div>
+      {mapSplits.map(function(ms) {
+        var isAboveAvg = ms.avg >= avg;
+        var hitGood = ms.hitRate >= 60;
+        var hitBad = ms.hitRate < 40;
+        return <div key={ms.map} className="grid items-center py-1.5 px-1" style={{
+          gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""),
+          borderBottom: "1px solid rgba(255,255,255,0.03)"
+        }}>
+          <span className="text-xs font-medium text-white truncate">{ms.map}</span>
+          <span className="text-xs text-center" style={{color: "#555"}}>{ms.games}</span>
+          <span className="text-xs text-center font-bold" style={{color: isAboveAvg ? "#52b788" : "#ff6b6b"}}>{isKd ? ms.avg.toFixed(2) : ms.avg.toFixed(1)}</span>
+          <span className="text-xs text-center font-bold" style={{color: kdColor(ms.kd)}}>{ms.kd.toFixed(2)}</span>
+          {hasThreshold && <span className="text-xs text-center font-bold px-1.5 py-0.5 rounded" style={{
+            background: hitGood ? "rgba(82,183,136,0.12)" : hitBad ? "rgba(255,107,107,0.12)" : "rgba(255,209,102,0.12)",
+            color: hitGood ? "#52b788" : hitBad ? "#ff6b6b" : "#ffd166",
+            fontSize: "10px"
+          }}>{ms.hits}/{ms.games}</span>}
         </div>;
-      })()}
+      })}
 
-      {/* Insights */}
-      {lineInsights.length > 0 && <div className="space-y-1.5 mt-3">
-        {lineInsights.map(function(ins, i) {
-          return <div key={i} className="rounded-lg px-2.5 py-2 flex items-start gap-2" style={{
-            background: ins.color === "#52b788" ? "rgba(82,183,136,0.07)" : ins.color === "#a3be8c" ? "rgba(163,190,140,0.07)" : ins.color === "#ffd166" ? "rgba(255,209,102,0.07)" : "rgba(255,107,107,0.07)",
-            border: "1px solid " + ins.color + "18"
-          }}>
-            <span style={{fontSize: "7px", marginTop: "4px", color: ins.color}}>{"\u25CF"}</span>
-            <span className="text-xs" style={{color: ins.color, lineHeight: "1.4"}}>{ins.text}</span>
-          </div>;
-        })}
-      </div>}
+      {/* Overall avg reference */}
+      <div className="mt-2 pt-2 flex items-center justify-between" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <span style={{fontSize: "9px", color: "#444"}}>Overall avg</span>
+        <span className="text-xs font-bold" style={{color: "#888"}}>{isKd ? avg.toFixed(2) : avg.toFixed(1)}</span>
+      </div>
     </div>}
 
     {/* Game log table */}

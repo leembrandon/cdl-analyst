@@ -25,7 +25,8 @@ async function fetchTeams() {
 
 async function fetchMatches() {
   // match_view joins matches + teams + events (gives team names, event names)
-   return mySupaFetch("match_view", "select=*&status=neq.completed&event_is_cdl=eq.true&order=scheduled_at.asc");
+  // Filter to CDL matches only
+  return mySupaFetch("match_view", "select=*&status=neq.completed&event_is_cdl=eq.true&order=scheduled_at.asc");
 }
 
 async function fetchRosters() {
@@ -102,6 +103,61 @@ function winPct(wins, losses) {
   return total > 0 ? ((wins || 0) / total) * 100 : 0;
 }
 
+// ─── PACE HELPERS ────────────────────────────────────────────
+// Derive team pace per mode by averaging roster player stats from the leaderboard.
+// Returns { hp: avgKillsPer10, snd: avgKPR, ovl: avgKillsPer10, hpEng: avgEng10 }
+
+function computeTeamPace(rosterPlayerStats) {
+  if (!rosterPlayerStats || rosterPlayerStats.length === 0) return null;
+  var hp = 0, snd = 0, ovl = 0, hpEng = 0, n = rosterPlayerStats.length;
+  rosterPlayerStats.forEach(function(p) {
+    hp += s(p, "hp_kills_per_10m");
+    snd += s(p, "snd_kills_per_round");
+    ovl += s(p, "ovl_kills_per_10m");
+    hpEng += s(p, "hp_engagements_10m");
+  });
+  return { hp: hp / n, snd: snd / n, ovl: ovl / n, hpEng: hpEng / n };
+}
+
+function computeLeagueAvgPace(allTeamPaces) {
+  if (!allTeamPaces || allTeamPaces.length === 0) return { hp: 22, snd: 0.7, ovl: 22, hpEng: 40 };
+  var hp = 0, snd = 0, ovl = 0, hpEng = 0, n = allTeamPaces.length;
+  allTeamPaces.forEach(function(p) {
+    hp += p.hp; snd += p.snd; ovl += p.ovl; hpEng += p.hpEng;
+  });
+  return { hp: hp / n, snd: snd / n, ovl: ovl / n, hpEng: hpEng / n };
+}
+
+// Matchup pace factor: how much faster/slower this matchup plays relative to league avg.
+// Returns a multiplier per mode — e.g. 1.08 means 8% more kills expected.
+// Formula: average both teams' pace, divide by league avg.
+function computeMatchupPaceFactor(playerTeamPace, oppTeamPace, leagueAvg) {
+  if (!playerTeamPace || !oppTeamPace || !leagueAvg) return null;
+  var matchupAvg = function(key) { return (playerTeamPace[key] + oppTeamPace[key]) / 2; };
+  var factor = function(key) { return leagueAvg[key] > 0 ? matchupAvg(key) / leagueAvg[key] : 1; };
+  return {
+    hp: factor("hp"),
+    snd: factor("snd"),
+    ovl: factor("ovl"),
+    hpEng: factor("hpEng"),
+    // Raw matchup averages for display
+    raw: { hp: matchupAvg("hp"), snd: matchupAvg("snd"), ovl: matchupAvg("ovl"), hpEng: matchupAvg("hpEng") }
+  };
+}
+
+function paceLabel(factor) {
+  if (factor >= 1.08) return { text: "High pace", color: "#52b788", icon: "\u26A1" };
+  if (factor >= 1.03) return { text: "Above avg", color: "#a3be8c", icon: "\u25B2" };
+  if (factor >= 0.97) return { text: "Average", color: "#ffd166", icon: "\u25CF" };
+  if (factor >= 0.92) return { text: "Below avg", color: "#e9965a", icon: "\u25BC" };
+  return { text: "Low pace", color: "#ff6b6b", icon: "\u25BC" };
+}
+
+// Apply pace factor to a player's average to get a matchup-adjusted projection
+function paceAdjustedProjection(playerAvg, paceFactor) {
+  return playerAvg * paceFactor;
+}
+
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
@@ -154,6 +210,16 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
   (seasonStandings || []).forEach(function(st) { standingsLookup[st.team_id] = st; });
   (majorStandings || []).forEach(function(st) { majorStandingsLookup[st.team_id] = st; });
 
+  // ─── PACE DATA ───────────────────────────────────────────
+  // Compute per-team pace from roster player stats
+  var teamPaces = {};
+  Object.keys(teamStats).forEach(function(tid) {
+    var rs = rosterStats(Number(tid));
+    var pace = computeTeamPace(rs);
+    if (pace) teamPaces[tid] = pace;
+  });
+  var leagueAvgPace = computeLeagueAvgPace(Object.values(teamPaces));
+
   // Power rankings
   var power = Object.values(teamStats).map(function(ts) {
     var tid = ts.team_id, kd = s(ts, "kd");
@@ -194,7 +260,7 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored});
   });
 
-  return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
+  return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || [], teamPaces: teamPaces, leagueAvgPace: leagueAvgPace};
 }
 
 // ─── UI COMPONENTS ───────────────────────────────────────────
@@ -784,15 +850,240 @@ var MODE_OVL = "Overload";
 
 // Line categories matching how books structure CDL props
 var LINE_CATS = [
-  {key: "map1", label: "Map 1 Kills", sub: "Hardpoint", mode: MODE_HP, field: "kills", source: "map"},
-  {key: "map2", label: "Map 2 Kills", sub: "Search & Destroy", mode: MODE_SND, field: "kills", source: "map"},
-  {key: "map3", label: "Map 3 Kills", sub: "Overload", mode: MODE_OVL, field: "kills", source: "map"},
-  {key: "m13kills", label: "Maps 1-3 Kills", sub: "First 3 maps only", mode: null, field: "kills", source: "combo"},
-  {key: "serieskd", label: "Series K/D", sub: "Full series", mode: null, field: "kd", source: "series"},
+  {key: "map1", label: "Map 1 Kills", sub: "Hardpoint", mode: MODE_HP, field: "kills", source: "map", paceMode: "hp"},
+  {key: "map2", label: "Map 2 Kills", sub: "Search & Destroy", mode: MODE_SND, field: "kills", source: "map", paceMode: "snd"},
+  {key: "map3", label: "Map 3 Kills", sub: "Overload", mode: MODE_OVL, field: "kills", source: "map", paceMode: "ovl"},
+  {key: "m13kills", label: "Maps 1-3 Kills", sub: "First 3 maps only", mode: null, field: "kills", source: "combo", paceMode: "combo"},
+  {key: "serieskd", label: "Series K/D", sub: "Full series", mode: null, field: "kd", source: "series", paceMode: null},
 ];
+
+// ─── MATCHUP PACE CONTEXT PANEL ─────────────────────────────
+
+function MatchupPaceContext(props) {
+  var player = props.player;
+  var analysis = props.analysis;
+  var activeCat = props.activeCat;
+  var avg = props.playerAvg; // player's historical average for this line
+  var threshold = props.threshold;
+  var direction = props.direction;
+  var [selectedOpp, setSelectedOpp] = useState(null);
+  var [showPicker, setShowPicker] = useState(false);
+
+  var playerTeamId = player.team_id;
+  var playerPace = analysis.teamPaces[playerTeamId];
+  var leagueAvg = analysis.leagueAvgPace;
+
+  // Find upcoming opponents for this player's team
+  var upcomingOpps = useMemo(function() {
+    return analysis.matchups.filter(function(mu) {
+      return (mu.t1Stats && mu.t1Stats.team_id === playerTeamId) || (mu.t2Stats && mu.t2Stats.team_id === playerTeamId);
+    }).map(function(mu) {
+      var isHome = mu.t1Stats && mu.t1Stats.team_id === playerTeamId;
+      var oppStats = isHome ? mu.t2Stats : mu.t1Stats;
+      var oppName = isHome ? mu.t2 : mu.t1;
+      return {
+        teamId: oppStats ? oppStats.team_id : null,
+        name: oppName ? oppName.name : "",
+        abbr: oppName ? oppName.name_short : "?",
+        color: oppStats ? oppStats.team_color : "#888",
+        datetime: mu.datetime,
+        event: mu.event
+      };
+    }).filter(function(o) { return o.teamId; });
+  }, [analysis.matchups, playerTeamId]);
+
+  // All CDL teams as fallback picker (excluding player's own team)
+  var allTeams = useMemo(function() {
+    return Object.values(analysis.teamStats).filter(function(t) { return t.team_id !== playerTeamId; }).map(function(t) {
+      return { teamId: t.team_id, name: t.team_name, abbr: t.team_abbr || t.team_short, color: t.team_color };
+    }).sort(function(a, b) { return a.name.localeCompare(b.name); });
+  }, [analysis.teamStats, playerTeamId]);
+
+  if (!playerPace || !activeCat.paceMode) return null;
+
+  var oppPace = selectedOpp ? analysis.teamPaces[selectedOpp.teamId] : null;
+  var paceFactor = oppPace ? computeMatchupPaceFactor(playerPace, oppPace, leagueAvg) : null;
+
+  // Get the relevant pace factor for this line category
+  var relevantFactor = null;
+  var relevantLabel = "";
+  if (paceFactor) {
+    if (activeCat.paceMode === "hp") { relevantFactor = paceFactor.hp; relevantLabel = "HP pace"; }
+    else if (activeCat.paceMode === "snd") { relevantFactor = paceFactor.snd; relevantLabel = "SnD pace"; }
+    else if (activeCat.paceMode === "ovl") { relevantFactor = paceFactor.ovl; relevantLabel = "OVL pace"; }
+    else if (activeCat.paceMode === "combo") {
+      // Weighted combo: HP and OVL are timed modes with more kills, SnD is round-based
+      // Use a rough weighted average: HP 40%, OVL 40%, SnD 20%
+      relevantFactor = (paceFactor.hp * 0.4) + (paceFactor.ovl * 0.4) + (paceFactor.snd * 0.2);
+      relevantLabel = "Combined pace";
+    }
+  }
+
+  var paceInfo = relevantFactor ? paceLabel(relevantFactor) : null;
+  var projectedAvg = relevantFactor && avg > 0 ? paceAdjustedProjection(avg, relevantFactor) : null;
+  var isKd = activeCat.field === "kd";
+  var threshNum = Number(threshold);
+  var hasThreshold = threshold !== "" && !isNaN(threshNum);
+
+  // Compute pace-adjusted hit likelihood
+  var paceVerdict = null;
+  if (projectedAvg && hasThreshold) {
+    var diff = projectedAvg - threshNum;
+    var pctDiff = threshNum > 0 ? (diff / threshNum) * 100 : 0;
+    if (direction === "over") {
+      if (pctDiff > 8) paceVerdict = { text: "Pace strongly favors OVER", color: "#52b788", icon: "\u2705" };
+      else if (pctDiff > 2) paceVerdict = { text: "Pace leans OVER", color: "#a3be8c", icon: "\u25B2" };
+      else if (pctDiff > -2) paceVerdict = { text: "Coin flip territory", color: "#ffd166", icon: "\u26A0" };
+      else if (pctDiff > -8) paceVerdict = { text: "Pace leans UNDER", color: "#e9965a", icon: "\u25BC" };
+      else paceVerdict = { text: "Pace strongly favors UNDER", color: "#ff6b6b", icon: "\u274C" };
+    } else {
+      // Under direction — invert
+      if (pctDiff < -8) paceVerdict = { text: "Pace strongly favors UNDER", color: "#52b788", icon: "\u2705" };
+      else if (pctDiff < -2) paceVerdict = { text: "Pace leans UNDER", color: "#a3be8c", icon: "\u25B2" };
+      else if (pctDiff < 2) paceVerdict = { text: "Coin flip territory", color: "#ffd166", icon: "\u26A0" };
+      else if (pctDiff < 8) paceVerdict = { text: "Pace leans OVER", color: "#e9965a", icon: "\u25BC" };
+      else paceVerdict = { text: "Pace strongly favors OVER", color: "#ff6b6b", icon: "\u274C" };
+    }
+  }
+
+  return <div className="rounded-xl overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+    {/* Header */}
+    <div className="px-3 py-2 flex items-center justify-between" style={{background: "rgba(83,168,182,0.08)", borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+      <div className="flex items-center gap-2">
+        <span style={{fontSize: "12px"}}>&#x1F3AF;</span>
+        <span className="text-xs font-bold uppercase tracking-wider" style={{color: "#53a8b6"}}>Matchup pace</span>
+      </div>
+      <span style={{fontSize: "9px", color: "#555", letterSpacing: "0.5px"}}>BASED ON TEAM ENGAGEMENT RATES</span>
+    </div>
+
+    <div className="p-3">
+      {/* Opponent selector */}
+      <div className="mb-3">
+        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "6px"}}>Select opponent</div>
+
+        {/* Quick picks from upcoming schedule */}
+        {upcomingOpps.length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">
+          {upcomingOpps.map(function(opp, i) {
+            var isSelected = selectedOpp && selectedOpp.teamId === opp.teamId;
+            return <button key={opp.teamId + "-" + i} onClick={function() { setSelectedOpp(opp); setShowPicker(false); }} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+              background: isSelected ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.04)",
+              border: isSelected ? "1px solid rgba(83,168,182,0.4)" : "1px solid rgba(255,255,255,0.06)",
+              color: isSelected ? "#53a8b6" : "#888"
+            }}>
+              <div className="w-1.5 h-4 rounded" style={{background: opp.color}} />
+              <span>{opp.abbr}</span>
+              <span style={{fontSize: "9px", color: "#555", fontWeight: 400}}>{timeUntil(opp.datetime)}</span>
+            </button>;
+          })}
+          <button onClick={function() { setShowPicker(!showPicker); }} className="px-2 py-1.5 rounded-lg text-xs font-semibold" style={{background: "rgba(255,255,255,0.04)", color: "#555", border: "1px solid rgba(255,255,255,0.06)"}}>
+            {showPicker ? "\u2715" : "+"} {showPicker ? "Close" : "Other"}
+          </button>
+        </div>}
+
+        {/* Full team picker (shown if no upcoming or "Other" clicked) */}
+        {(showPicker || upcomingOpps.length === 0) && <div className="flex flex-wrap gap-1.5">
+          {allTeams.map(function(t) {
+            var isSelected = selectedOpp && selectedOpp.teamId === t.teamId;
+            return <button key={t.teamId} onClick={function() { setSelectedOpp(t); setShowPicker(false); }} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all" style={{
+              background: isSelected ? "rgba(83,168,182,0.2)" : "rgba(255,255,255,0.03)",
+              border: isSelected ? "1px solid rgba(83,168,182,0.3)" : "1px solid rgba(255,255,255,0.04)",
+              color: isSelected ? "#53a8b6" : "#666"
+            }}>
+              <div className="w-1 h-3 rounded" style={{background: t.color}} />
+              {t.abbr}
+            </button>;
+          })}
+        </div>}
+      </div>
+
+      {/* Pace analysis (shown when opponent selected) */}
+      {selectedOpp && relevantFactor && <div>
+        {/* Pace meter bar */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span style={{fontSize: "10px", color: "#555"}}>{relevantLabel}</span>
+            <span className="text-xs font-bold" style={{color: paceInfo.color}}>{paceInfo.icon} {paceInfo.text}</span>
+          </div>
+          <div className="relative h-2 rounded-full overflow-hidden" style={{background: "rgba(255,255,255,0.06)"}}>
+            {/* Background gradient: red(slow) -> yellow(avg) -> green(fast) */}
+            <div className="absolute inset-0 rounded-full" style={{background: "linear-gradient(to right, #ff6b6b, #ffd166 40%, #ffd166 60%, #52b788)"}} />
+            {/* Indicator needle */}
+            <div className="absolute top-0 h-full" style={{
+              left: Math.max(0, Math.min(100, ((relevantFactor - 0.85) / 0.3) * 100)) + "%",
+              width: "3px",
+              background: "#fff",
+              borderRadius: "2px",
+              boxShadow: "0 0 6px rgba(255,255,255,0.5)",
+              transform: "translateX(-50%)"
+            }} />
+          </div>
+          <div className="flex justify-between mt-1" style={{fontSize: "9px", color: "#444"}}>
+            <span>Slow</span>
+            <span>Avg</span>
+            <span>Fast</span>
+          </div>
+        </div>
+
+        {/* Factor details */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Pace factor</div>
+            <div className="text-sm font-bold" style={{color: paceInfo.color}}>{(relevantFactor * 100).toFixed(1)}%</div>
+          </div>
+          <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Player avg</div>
+            <div className="text-sm font-bold text-white">{isKd ? avg.toFixed(2) : avg.toFixed(1)}</div>
+          </div>
+          <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Adj. proj.</div>
+            <div className="text-sm font-bold" style={{color: projectedAvg ? (projectedAvg > avg ? "#52b788" : projectedAvg < avg ? "#ff6b6b" : "#ffd166") : "#888"}}>
+              {projectedAvg ? (isKd ? projectedAvg.toFixed(2) : projectedAvg.toFixed(1)) : "-"}
+            </div>
+          </div>
+        </div>
+
+        {/* Verdict vs line */}
+        {paceVerdict && hasThreshold && <div className="rounded-lg p-3" style={{
+          background: paceVerdict.color === "#52b788" ? "rgba(82,183,136,0.08)" : paceVerdict.color === "#ff6b6b" ? "rgba(255,107,107,0.08)" : "rgba(255,209,102,0.08)",
+          border: "1px solid " + paceVerdict.color + "22"
+        }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs font-bold" style={{color: paceVerdict.color}}>{paceVerdict.icon} {paceVerdict.text}</div>
+              <div style={{fontSize: "10px", color: "#555", marginTop: "2px"}}>
+                Proj. {isKd ? projectedAvg.toFixed(2) : projectedAvg.toFixed(1)} vs line {isKd ? threshNum.toFixed(2) : threshNum} ({direction})
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-black" style={{color: paceVerdict.color}}>
+                {projectedAvg > threshNum ? "+" : ""}{isKd ? (projectedAvg - threshNum).toFixed(2) : (projectedAvg - threshNum).toFixed(1)}
+              </div>
+              <div style={{fontSize: "9px", color: "#555"}}>vs line</div>
+            </div>
+          </div>
+        </div>}
+
+        {/* Explanation */}
+        <div className="mt-2" style={{fontSize: "10px", color: "#444", lineHeight: "1.4"}}>
+          {relevantFactor >= 1.03 ?
+            "Both teams play at a faster pace than average — expect more engagements and higher kill totals in this matchup." :
+            relevantFactor <= 0.97 ?
+            "This matchup trends slower than league average — fewer engagements and lower kill totals likely." :
+            "This matchup plays near league-average pace — no major adjustment expected."
+          }
+        </div>
+      </div>}
+
+      {!selectedOpp && <div className="text-center py-3" style={{color: "#555", fontSize: "12px"}}>
+        Pick an opponent to see pace-adjusted projections
+      </div>}
+    </div>
+  </div>;
+}
 
 function CDLLineCheck(props) {
   var player = props.player;
+  var analysis = props.analysis;
   var init = props.initialParams || {};
   var [cat, setCat] = useState(init.cat || "map1");
   var [threshold, setThreshold] = useState(init.threshold || "");
@@ -956,6 +1247,16 @@ function CDLLineCheck(props) {
         {activeCat.sub && <span style={{fontSize: "10px", color: "#555", background: "rgba(255,255,255,0.04)", padding: "2px 6px", borderRadius: "4px"}}>{activeCat.sub}</span>}
       </div>
     </div>
+
+    {/* ─── MATCHUP PACE CONTEXT ─── */}
+    {analysis && activeCat.paceMode && <MatchupPaceContext
+      player={player}
+      analysis={analysis}
+      activeCat={activeCat}
+      avg={avg}
+      threshold={threshold}
+      direction={direction}
+    />}
 
     {/* Result card */}
     {hasThreshold && dataPoints.length > 0 && <div>
@@ -1180,7 +1481,7 @@ function CDLLinesTab(props) {
         </div>
       </div>
 
-      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} />
+      <CDLLineCheck player={selectedPlayer} analysis={analysis} initialParams={initialLineParams} />
     </div>}
   </div>;
 }

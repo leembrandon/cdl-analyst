@@ -69,58 +69,6 @@ async function fetchPlayerMapStats(playerId) {
   return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc,map_number.asc&limit=150");
 }
 
-async function fetchAllHpMapStats() {
-  // Fetch all Hardpoint map stats to compute team pace
-  return mySupaFetch("map_stats_view", "select=kills,deaths,duration_sec,opp_team_abbr,player_team_abbr,series_map_id&mode_name=eq.Hardpoint");
-}
-
-// ─── PACE CALCULATION ────────────────────────────────────────
-
-function computeTeamPaces(hpRows) {
-  // Group by series_map_id to get total engagements per map
-  var mapTotals = {};
-  hpRows.forEach(function(r) {
-    var mid = r.series_map_id;
-    if (!mapTotals[mid]) mapTotals[mid] = {eng: 0, dur: 0, teams: {}};
-    mapTotals[mid].eng += (Number(r.kills) || 0) + (Number(r.deaths) || 0);
-    mapTotals[mid].dur = Number(r.duration_sec) || 0;
-    if (r.player_team_abbr) mapTotals[mid].teams[r.player_team_abbr] = true;
-    if (r.opp_team_abbr) mapTotals[mid].teams[r.opp_team_abbr] = true;
-  });
-
-  // Calculate pace per team: engagements per 10 min across all their HP maps
-  var teamPaceList = {};
-  Object.keys(mapTotals).forEach(function(mid) {
-    var d = mapTotals[mid];
-    if (d.dur <= 0) return;
-    var pace = (d.eng / (d.dur / 60)) * 10;
-    Object.keys(d.teams).forEach(function(t) {
-      if (!teamPaceList[t]) teamPaceList[t] = [];
-      teamPaceList[t].push(pace);
-    });
-  });
-
-  // Average pace per team
-  var teamPaces = {};
-  Object.keys(teamPaceList).forEach(function(t) {
-    var arr = teamPaceList[t];
-    var sum = 0;
-    arr.forEach(function(v) { sum += v; });
-    teamPaces[t] = {pace: sum / arr.length, maps: arr.length};
-  });
-
-  // Sort by pace and assign tiers (thirds)
-  var sorted = Object.keys(teamPaces).filter(function(t) { return teamPaces[t].maps >= 2; }).sort(function(a, b) { return teamPaces[a].pace - teamPaces[b].pace; });
-  var third = Math.ceil(sorted.length / 3);
-  sorted.forEach(function(t, i) {
-    if (i < third) teamPaces[t].tier = "low";
-    else if (i < third * 2) teamPaces[t].tier = "mid";
-    else teamPaces[t].tier = "high";
-  });
-
-  return teamPaces;
-}
-
 // ─── HELPERS ─────────────────────────────────────────────────
 
 var s = function(obj, key, def) { if (def === undefined) def = 0; return (obj && obj[key] != null) ? obj[key] : def; };
@@ -845,8 +793,8 @@ var LINE_CATS = [
 
 function CDLLineCheck(props) {
   var player = props.player;
+  var analysis = props.analysis || {};
   var init = props.initialParams || {};
-  var teamPaces = props.teamPaces || {};
   var [cat, setCat] = useState(init.cat || "map1");
   var [threshold, setThreshold] = useState(init.threshold || "");
   var [direction, setDirection] = useState(init.direction || "over");
@@ -885,11 +833,9 @@ function CDLLineCheck(props) {
     var filtered = mapLogs.filter(function(m) { return m.mode_name === activeCat.mode; });
     // Each row is one map occurrence — already sorted by date desc
     dataPoints = filtered.slice(0, range).map(function(m) {
-      var oppAbbr = m.opp_team_abbr || "?";
-      var oppPace = teamPaces[oppAbbr];
       return {
         value: Number(m[activeCat.field]) || 0,
-        opp: oppAbbr,
+        opp: m.opp_team_abbr || "?",
         oppColor: m.opp_team_color || "#888",
         date: m.scheduled_at,
         mapName: m.map_name || "",
@@ -897,9 +843,7 @@ function CDLLineCheck(props) {
         wonSeries: m.won_series,
         kills: m.kills || 0,
         deaths: m.deaths || 0,
-        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills,
-        oppPaceTier: oppPace ? oppPace.tier : null,
-        oppPaceVal: oppPace ? oppPace.pace : null
+        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills
       };
     });
   } else if (activeCat.source === "combo") {
@@ -923,7 +867,6 @@ function CDLLineCheck(props) {
       return matchGroups[mid].mapsInGroup >= 3;
     }).slice(0, range).map(function(mid) {
       var g = matchGroups[mid];
-      var oppPace = teamPaces[g.opp];
       return {
         value: g.kills,
         opp: g.opp,
@@ -934,9 +877,7 @@ function CDLLineCheck(props) {
         wonSeries: g.wonSeries,
         kills: g.kills,
         deaths: g.deaths,
-        kd: g.deaths > 0 ? (g.kills / g.deaths) : g.kills,
-        oppPaceTier: oppPace ? oppPace.tier : null,
-        oppPaceVal: oppPace ? oppPace.pace : null
+        kd: g.deaths > 0 ? (g.kills / g.deaths) : g.kills
       };
     });
   } else {
@@ -959,9 +900,7 @@ function CDLLineCheck(props) {
         wonSeries: m.won_series,
         kills: m.kills || 0,
         deaths: m.deaths || 0,
-        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills,
-        oppPaceTier: (teamPaces[m.opp_team_abbr] || {}).tier || null,
-        oppPaceVal: (teamPaces[m.opp_team_abbr] || {}).pace || null
+        kd: m.deaths > 0 ? (m.kills / m.deaths) : m.kills
       };
     });
   }
@@ -983,37 +922,84 @@ function CDLLineCheck(props) {
     avg = sum / dataPoints.length;
   }
 
-  var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
+  // Median
+  var median = 0;
+  if (dataPoints.length > 0) {
+    var sorted = dataPoints.map(function(d) { return d.value; }).slice().sort(function(a, b) { return a - b; });
+    var mid = Math.floor(sorted.length / 2);
+    median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
 
-  // ─── PACE INSIGHT ────────────────────────────────────────
-  var PACE_TIER_LABELS = {low: "Low", mid: "Mid", high: "High"};
-  var PACE_TIER_COLORS = {low: "#53a8b6", mid: "#ffd166", high: "#e94560"};
-  var PACE_TIER_BG = {low: "rgba(83,168,182,0.12)", mid: "rgba(255,209,102,0.12)", high: "rgba(233,69,96,0.12)"};
+  // Standard deviation
+  var stdDev = 0;
+  if (dataPoints.length > 1) {
+    var sqDiffs = 0;
+    dataPoints.forEach(function(d) { sqDiffs += Math.pow(d.value - avg, 2); });
+    stdDev = Math.sqrt(sqDiffs / (dataPoints.length - 1));
+  }
 
-  // Only show pace insight for HP-related categories (map1 = HP, combo = includes HP)
-  var showPaceInsight = activeCat.mode === "Hardpoint" || activeCat.source === "combo";
+  // Min / Max for distribution context
+  var minVal = dataPoints.length > 0 ? Math.min.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
+  var maxVal = dataPoints.length > 0 ? Math.max.apply(null, dataPoints.map(function(d) { return d.value; })) : 0;
 
-  var paceBreakdown = {low: [], mid: [], high: []};
-  dataPoints.forEach(function(d) {
-    if (d.oppPaceTier && paceBreakdown[d.oppPaceTier]) {
-      paceBreakdown[d.oppPaceTier].push(d);
+  // Line position assessment
+  var lineAssessment = "";
+  var lineAssessColor = "#888";
+  if (hasThreshold && dataPoints.length > 0) {
+    var diff = threshNum - avg;
+    var diffPct = avg > 0 ? Math.abs(diff / avg * 100) : 0;
+    if (direction === "over") {
+      if (threshNum < avg - stdDev * 0.5) { lineAssessment = "Line well below avg — strong over"; lineAssessColor = "#52b788"; }
+      else if (threshNum < avg) { lineAssessment = "Line below avg — lean over"; lineAssessColor = "#a3be8c"; }
+      else if (threshNum < avg + stdDev * 0.5) { lineAssessment = "Line near avg — coin flip"; lineAssessColor = "#ffd166"; }
+      else { lineAssessment = "Line above avg — risky over"; lineAssessColor = "#ff6b6b"; }
+    } else {
+      if (threshNum > avg + stdDev * 0.5) { lineAssessment = "Line well above avg — strong under"; lineAssessColor = "#52b788"; }
+      else if (threshNum > avg) { lineAssessment = "Line above avg — lean under"; lineAssessColor = "#a3be8c"; }
+      else if (threshNum > avg - stdDev * 0.5) { lineAssessment = "Line near avg — coin flip"; lineAssessColor = "#ffd166"; }
+      else { lineAssessment = "Line below avg — risky under"; lineAssessColor = "#ff6b6b"; }
     }
-  });
+  }
 
-  // For each tier, compute hits and avg
-  var paceTierStats = {};
-  ["low", "mid", "high"].forEach(function(tier) {
-    var pts = paceBreakdown[tier];
-    if (pts.length === 0) { paceTierStats[tier] = null; return; }
-    var tierHits = hasThreshold ? pts.filter(function(d) {
-      return direction === "over" ? d.value >= threshNum : d.value < threshNum;
-    }) : [];
-    var tierSum = 0;
-    pts.forEach(function(d) { tierSum += d.value; });
-    var tierAvg = tierSum / pts.length;
-    var tierHitPct = hasThreshold && pts.length > 0 ? (tierHits.length / pts.length * 100) : 0;
-    paceTierStats[tier] = {hits: tierHits.length, total: pts.length, pct: tierHitPct, avg: tierAvg};
-  });
+  // Opponent breakdown
+  var oppBreakdown = [];
+  if (dataPoints.length > 0) {
+    var oppMap = {};
+    dataPoints.forEach(function(d) {
+      var key = d.opp;
+      if (!oppMap[key]) { oppMap[key] = {opp: key, color: d.oppColor || "#888", values: [], wins: 0, losses: 0}; }
+      oppMap[key].values.push(d.value);
+      if (d.won || d.wonSeries) oppMap[key].wins++; else oppMap[key].losses++;
+    });
+    Object.keys(oppMap).forEach(function(key) {
+      var o = oppMap[key];
+      var oSum = 0;
+      o.values.forEach(function(v) { oSum += v; });
+      var oAvg = oSum / o.values.length;
+      var oHits = 0;
+      if (hasThreshold) {
+        o.values.forEach(function(v) {
+          if (direction === "over" ? v >= threshNum : v < threshNum) oHits++;
+        });
+      }
+      oppBreakdown.push({
+        opp: o.opp,
+        color: o.color,
+        games: o.values.length,
+        avg: oAvg,
+        hitRate: hasThreshold ? (oHits / o.values.length * 100) : 0,
+        hits: oHits,
+        wins: o.wins,
+        losses: o.losses,
+        best: Math.max.apply(null, o.values),
+        worst: Math.min.apply(null, o.values)
+      });
+    });
+    // Sort by games played desc
+    oppBreakdown.sort(function(a, b) { return b.games - a.games; });
+  }
+
+  var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
 
   return <div>
     {/* Category pills */}
@@ -1092,7 +1078,6 @@ function CDLLineCheck(props) {
                 fontSize: "10px"
               }}>{display}</div>
               <span style={{fontSize: "8px", color: d.oppColor || "#444", marginTop: "2px"}}>{d.opp}</span>
-              {showPaceInsight && d.oppPaceTier && <div className="w-1.5 h-1.5 rounded-full" style={{background: PACE_TIER_COLORS[d.oppPaceTier] || "#555", marginTop: "1px"}} title={PACE_TIER_LABELS[d.oppPaceTier] + " pace"} />}
             </div>;
           })}
         </div>
@@ -1151,67 +1136,155 @@ function CDLLineCheck(props) {
       </div>
     </div>}
 
-    {/* Pace insight card */}
-    {showPaceInsight && dataPoints.length > 0 && (paceTierStats.low || paceTierStats.mid || paceTierStats.high) && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="flex items-center gap-2 mb-2.5">
-        <span className="text-xs font-bold uppercase tracking-wider" style={{color: "#888"}}>Pace breakdown</span>
-        <span className="text-xs px-1.5 py-0.5 rounded" style={{background: "rgba(233,69,96,0.1)", color: "#e94560", fontSize: "9px"}}>NEW</span>
+    {/* ── LINE INTELLIGENCE ────────────────────────────────── */}
+    {dataPoints.length >= 3 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{color: "#555"}}>Line intelligence</div>
+
+      {/* Stats row: Avg / Median / StdDev / Range */}
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
+          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Avg</div>
+          <div className="text-sm font-bold text-white">{isKd ? avg.toFixed(2) : avg.toFixed(1)}</div>
+        </div>
+        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
+          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Median</div>
+          <div className="text-sm font-bold text-white">{isKd ? median.toFixed(2) : median.toFixed(1)}</div>
+        </div>
+        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
+          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Std Dev</div>
+          <div className="text-sm font-bold" style={{color: stdDev > avg * 0.25 ? "#ffd166" : "#aaa"}}>{isKd ? stdDev.toFixed(2) : stdDev.toFixed(1)}</div>
+        </div>
+        <div className="text-center rounded-lg p-2" style={{background: "rgba(255,255,255,0.03)"}}>
+          <div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Range</div>
+          <div className="text-sm font-bold" style={{color: "#aaa"}}>{isKd ? minVal.toFixed(1) : minVal}{"\u2013"}{isKd ? maxVal.toFixed(1) : maxVal}</div>
+        </div>
       </div>
-      <div className="text-xs mb-3" style={{color: "#555"}}>Performance split by opponent tempo — high-pace teams create more engagements</div>
+
+      {/* Visual distribution bar */}
+      {hasThreshold && (function() {
+        var barMin = Math.min(minVal, threshNum) - (isKd ? 0.1 : 2);
+        var barMax = Math.max(maxVal, threshNum) + (isKd ? 0.1 : 2);
+        var barRange = barMax - barMin || 1;
+        var avgPct = ((avg - barMin) / barRange * 100);
+        var medPct = ((median - barMin) / barRange * 100);
+        var linePct = ((threshNum - barMin) / barRange * 100);
+        var sdLow = Math.max(0, ((avg - stdDev - barMin) / barRange * 100));
+        var sdHigh = Math.min(100, ((avg + stdDev - barMin) / barRange * 100));
+        return <div className="mb-3">
+          <div className="relative rounded-full" style={{height: "28px", background: "rgba(255,255,255,0.04)", overflow: "hidden"}}>
+            {/* StdDev band */}
+            <div className="absolute top-0 bottom-0 rounded-full" style={{left: sdLow + "%", width: (sdHigh - sdLow) + "%", background: "rgba(255,255,255,0.06)"}} />
+            {/* Data point dots */}
+            {dataPoints.map(function(d, i) {
+              var pct = ((d.value - barMin) / barRange * 100);
+              var isHit = hasThreshold ? (direction === "over" ? d.value >= threshNum : d.value < threshNum) : false;
+              return <div key={i} className="absolute rounded-full" style={{
+                left: "calc(" + pct + "% - 3px)", top: "50%", transform: "translateY(-50%)",
+                width: "6px", height: "6px",
+                background: isHit ? "rgba(82,183,136,0.7)" : "rgba(255,107,107,0.5)",
+                opacity: 0.8
+              }} />;
+            })}
+            {/* Average marker */}
+            <div className="absolute" style={{left: "calc(" + avgPct + "% - 1px)", top: "2px", bottom: "2px", width: "2px", background: "#ffd166", borderRadius: "1px"}} />
+            {/* Line marker */}
+            <div className="absolute" style={{left: "calc(" + linePct + "% - 1px)", top: "0", bottom: "0", width: "2px", background: "#e94560", borderRadius: "1px"}} />
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1"><span style={{width: "8px", height: "2px", background: "#ffd166", display: "inline-block", borderRadius: "1px"}} /><span style={{fontSize: "9px", color: "#666"}}>Avg</span></span>
+              <span className="flex items-center gap-1"><span style={{width: "8px", height: "2px", background: "#e94560", display: "inline-block", borderRadius: "1px"}} /><span style={{fontSize: "9px", color: "#666"}}>Line</span></span>
+              <span className="flex items-center gap-1"><span style={{width: "8px", height: "8px", background: "rgba(255,255,255,0.06)", display: "inline-block", borderRadius: "2px"}} /><span style={{fontSize: "9px", color: "#666"}}>{"\u00b1"}1 SD</span></span>
+            </div>
+          </div>
+        </div>;
+      })()}
+
+      {/* Assessment */}
+      {hasThreshold && lineAssessment && <div className="rounded-lg p-2.5" style={{
+        background: lineAssessColor === "#52b788" ? "rgba(82,183,136,0.08)" : lineAssessColor === "#a3be8c" ? "rgba(163,190,140,0.08)" : lineAssessColor === "#ffd166" ? "rgba(255,209,102,0.08)" : "rgba(255,107,107,0.08)",
+        border: "1px solid " + lineAssessColor + "22"
+      }}>
+        <div className="flex items-center gap-2">
+          <span style={{fontSize: "14px"}}>{lineAssessColor === "#52b788" ? "\uD83D\uDFE2" : lineAssessColor === "#a3be8c" ? "\uD83D\uDFE1" : lineAssessColor === "#ffd166" ? "\uD83D\uDFE1" : "\uD83D\uDD34"}</span>
+          <div>
+            <div className="text-xs font-bold" style={{color: lineAssessColor}}>{lineAssessment}</div>
+            <div style={{fontSize: "9px", color: "#555"}}>Avg {isKd ? avg.toFixed(2) : avg.toFixed(1)} vs line {isKd ? threshNum.toFixed(2) : threshNum} ({avg > threshNum ? "+" : ""}{isKd ? (avg - threshNum).toFixed(2) : (avg - threshNum).toFixed(1)} diff)</div>
+          </div>
+        </div>
+      </div>}
+
+      {/* Consistency grade */}
+      {dataPoints.length >= 5 && <div className="mt-2 flex items-center gap-2">
+        <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Consistency:</span>
+        {(function() {
+          var cv = avg > 0 ? (stdDev / avg) : 0;
+          var grade = cv < 0.15 ? "Very consistent" : cv < 0.25 ? "Consistent" : cv < 0.35 ? "Moderate variance" : "Boom or bust";
+          var gColor = cv < 0.15 ? "#52b788" : cv < 0.25 ? "#a3be8c" : cv < 0.35 ? "#ffd166" : "#ff6b6b";
+          return <span className="text-xs font-bold px-2 py-0.5 rounded" style={{background: gColor + "15", color: gColor, fontSize: "10px"}}>{grade}</span>;
+        })()}
+      </div>}
+    </div>}
+
+    {/* ── OPPONENT BREAKDOWN ───────────────────────────────── */}
+    {oppBreakdown.length > 1 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{color: "#555"}}>Opponent breakdown</div>
+
       <div className="space-y-1.5">
-        {["high", "mid", "low"].map(function(tier) {
-          var st = paceTierStats[tier];
-          if (!st) return <div key={tier} className="flex items-center gap-2 py-2 px-2.5 rounded-lg" style={{background: "rgba(255,255,255,0.02)"}}>
-            <span className="text-xs font-bold w-12" style={{color: PACE_TIER_COLORS[tier]}}>{PACE_TIER_LABELS[tier]}</span>
-            <span className="text-xs flex-1" style={{color: "#444"}}>No data</span>
-          </div>;
-          var tierHitColor = st.pct >= 60 ? "#52b788" : st.pct >= 40 ? "#ffd166" : "#ff6b6b";
-          return <div key={tier} className="flex items-center gap-2 py-2 px-2.5 rounded-lg" style={{background: PACE_TIER_BG[tier], border: "1px solid " + PACE_TIER_COLORS[tier] + "22"}}>
-            <div className="flex items-center gap-1.5 w-14 flex-shrink-0">
-              <div className="w-1.5 h-5 rounded-full" style={{background: PACE_TIER_COLORS[tier]}} />
-              <span className="text-xs font-bold" style={{color: PACE_TIER_COLORS[tier]}}>{PACE_TIER_LABELS[tier]}</span>
+        {oppBreakdown.map(function(o) {
+          var barW = avg > 0 ? Math.min(100, o.avg / (maxVal * 1.05) * 100) : 50;
+          var isAboveAvg = o.avg >= avg;
+          return <div key={o.opp} className="rounded-lg p-2" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.03)"}}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold" style={{color: o.color, minWidth: "32px"}}>{o.opp}</span>
+                <span style={{fontSize: "9px", color: "#444"}}>{o.games} {activeCat.source === "map" ? (o.games === 1 ? "map" : "maps") : (o.games === 1 ? "series" : "series")}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold" style={{color: isAboveAvg ? "#52b788" : "#ff6b6b"}}>{isKd ? o.avg.toFixed(2) : o.avg.toFixed(1)} avg</span>
+                {hasThreshold && <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{
+                  background: o.hitRate >= 60 ? "rgba(82,183,136,0.15)" : o.hitRate >= 40 ? "rgba(255,209,102,0.15)" : "rgba(255,107,107,0.15)",
+                  color: o.hitRate >= 60 ? "#52b788" : o.hitRate >= 40 ? "#ffd166" : "#ff6b6b",
+                  fontSize: "10px"
+                }}>{o.hits}/{o.games} ({o.hitRate.toFixed(0)}%)</span>}
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs" style={{color: "#aaa"}}>Avg: <span className="font-bold text-white">{isKd ? st.avg.toFixed(2) : st.avg.toFixed(1)}</span></div>
+            {/* Mini bar */}
+            <div className="relative rounded-full" style={{height: "4px", background: "rgba(255,255,255,0.04)"}}>
+              <div className="absolute left-0 top-0 bottom-0 rounded-full" style={{width: barW + "%", background: isAboveAvg ? "rgba(82,183,136,0.4)" : "rgba(255,107,107,0.3)"}} />
             </div>
-            {hasThreshold && <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-sm font-bold tabular-nums" style={{color: tierHitColor}}>{st.hits}/{st.total}</span>
-              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{background: tierHitColor + "20", color: tierHitColor}}>{st.pct.toFixed(0)}%</span>
-            </div>}
-            {!hasThreshold && <div className="flex-shrink-0">
-              <span className="text-xs tabular-nums" style={{color: "#666"}}>{st.total} {activeCat.source === "map" ? "maps" : "series"}</span>
-            </div>}
           </div>;
         })}
       </div>
-      {hasThreshold && <div className="mt-2.5 pt-2" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        {(function() {
-          // Find best tier for the current direction
-          var bestTier = null, bestPct = -1;
-          ["high", "mid", "low"].forEach(function(tier) {
-            var st = paceTierStats[tier];
-            if (st && st.total >= 2 && st.pct > bestPct) { bestPct = st.pct; bestTier = tier; }
-          });
-          if (!bestTier) return null;
-          var worstTier = null, worstPct = 101;
-          ["high", "mid", "low"].forEach(function(tier) {
-            var st = paceTierStats[tier];
-            if (st && st.total >= 2 && st.pct < worstPct) { worstPct = st.pct; worstTier = tier; }
-          });
-          if (bestTier === worstTier) return <div className="text-xs" style={{color: "#666"}}>Not enough pace variation in sample to draw conclusions</div>;
-          var verb = direction === "over" ? "smashes" : "stays under";
-          return <div className="text-xs" style={{color: "#aaa"}}>
-            <span style={{color: PACE_TIER_COLORS[bestTier], fontWeight: 700}}>{PACE_TIER_LABELS[bestTier]}-pace</span> opponents → {verb} the line <span className="font-bold" style={{color: bestPct >= 60 ? "#52b788" : "#ffd166"}}>{bestPct.toFixed(0)}%</span> of the time
-            {worstTier && <span> vs <span style={{color: PACE_TIER_COLORS[worstTier], fontWeight: 700}}>{PACE_TIER_LABELS[worstTier]}-pace</span> at <span className="font-bold" style={{color: worstPct >= 60 ? "#52b788" : worstPct >= 40 ? "#ffd166" : "#ff6b6b"}}>{worstPct.toFixed(0)}%</span></span>}
-          </div>;
-        })()}
-      </div>}
+
+      {/* Best/worst opponents */}
+      {oppBreakdown.length >= 2 && (function() {
+        var best = oppBreakdown.slice().sort(function(a, b) { return b.avg - a.avg; })[0];
+        var worst = oppBreakdown.slice().sort(function(a, b) { return a.avg - b.avg; })[0];
+        if (best.opp === worst.opp) return null;
+        return <div className="flex gap-2 mt-2">
+          <div className="flex-1 rounded-lg p-2" style={{background: "rgba(82,183,136,0.06)", border: "1px solid rgba(82,183,136,0.1)"}}>
+            <div style={{fontSize: "9px", color: "#52b788", textTransform: "uppercase"}}>Best vs</div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold" style={{color: best.color}}>{best.opp}</span>
+              <span className="text-xs font-bold" style={{color: "#52b788"}}>{isKd ? best.avg.toFixed(2) : best.avg.toFixed(1)}</span>
+            </div>
+          </div>
+          <div className="flex-1 rounded-lg p-2" style={{background: "rgba(255,107,107,0.06)", border: "1px solid rgba(255,107,107,0.1)"}}>
+            <div style={{fontSize: "9px", color: "#ff6b6b", textTransform: "uppercase"}}>Worst vs</div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold" style={{color: worst.color}}>{worst.opp}</span>
+              <span className="text-xs font-bold" style={{color: "#ff6b6b"}}>{isKd ? worst.avg.toFixed(2) : worst.avg.toFixed(1)}</span>
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>}
 
     {/* Game log table */}
     {dataPoints.length > 0 && <div className="rounded-xl overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="px-2 py-1.5 grid items-center" style={{
-        gridTemplateColumns: showPaceInsight ? "42px 1fr 30px 30px 38px 28px 32px" : (activeCat.source === "map" ? "42px 1fr 36px 36px 42px 36px" : "42px 1fr 36px 36px 42px 36px"),
+        gridTemplateColumns: activeCat.source === "map" ? "42px 1fr 36px 36px 42px 36px" : "42px 1fr 36px 36px 42px 36px",
         fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", borderBottom: "1px solid rgba(255,255,255,0.06)"
       }}>
         <span>OPP</span>
@@ -1220,11 +1293,10 @@ function CDLLineCheck(props) {
         <span className="text-center">D</span>
         <span className="text-center">K/D</span>
         <span className="text-center">W/L</span>
-        {showPaceInsight && <span className="text-center">PACE</span>}
       </div>
       {dataPoints.map(function(d, i) {
         return <div key={i} className="px-2 py-1.5 grid items-center" style={{
-          gridTemplateColumns: showPaceInsight ? "42px 1fr 30px 30px 38px 28px 32px" : "42px 1fr 36px 36px 42px 36px",
+          gridTemplateColumns: "42px 1fr 36px 36px 42px 36px",
           borderBottom: "1px solid rgba(255,255,255,0.02)",
           background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"
         }}>
@@ -1234,7 +1306,6 @@ function CDLLineCheck(props) {
           <span className="text-xs text-center tabular-nums" style={{color: "#aaa"}}>{d.deaths}</span>
           <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(d.kd)}}>{d.kd.toFixed(2)}</span>
           <span className="text-xs text-center font-bold" style={{color: (activeCat.source === "map" ? d.won : d.wonSeries) ? "#52b788" : "#ff6b6b"}}>{(activeCat.source === "map" ? d.won : d.wonSeries) ? "W" : "L"}</span>
-          {showPaceInsight && <span className="text-center"><span className="text-xs font-bold px-1 py-0.5 rounded" style={{background: d.oppPaceTier ? (PACE_TIER_COLORS[d.oppPaceTier] + "20") : "transparent", color: d.oppPaceTier ? PACE_TIER_COLORS[d.oppPaceTier] : "#444", fontSize: "8px"}}>{d.oppPaceTier ? PACE_TIER_LABELS[d.oppPaceTier][0] : "—"}</span></span>}
         </div>;
       })}
     </div>}
@@ -1245,7 +1316,6 @@ function CDLLineCheck(props) {
 
 function CDLLinesTab(props) {
   var analysis = props.analysis;
-  var teamPaces = props.teamPaces || {};
   var [query, setQuery] = useState("");
   var [selectedPlayer, setSelectedPlayer] = useState(null);
   var [initialLineParams, setInitialLineParams] = useState(null);
@@ -1333,7 +1403,7 @@ function CDLLinesTab(props) {
         </div>
       </div>
 
-      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} teamPaces={teamPaces} />
+      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} analysis={analysis} />
     </div>}
   </div>;
 }
@@ -1348,7 +1418,6 @@ export default function App() {
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
-  var [teamPaces, setTeamPaces] = useState({});
   var [teamPageId, setTeamPageId] = useState(null);
 
   var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
@@ -1359,9 +1428,8 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
-        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID), fetchAllHpMapStats()]);
+        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID)]);
         setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]));
-        setTeamPaces(computeTeamPaces(results[6]));
       } catch(e) {
         console.error(e);
         setError(e.message);
@@ -1401,7 +1469,7 @@ export default function App() {
       </div>}
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
-      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} teamPaces={teamPaces} /></div>}
+      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>

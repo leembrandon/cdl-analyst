@@ -29,8 +29,8 @@ async function fetchMatches() {
 }
 
 async function fetchResults() {
-  // Completed matches — most recent first
-  return mySupaFetch("match_view", "select=*&status=eq.completed&event_is_cdl=eq.true&order=scheduled_at.desc&limit=30");
+  // All completed CDL matches — most recent first
+  return mySupaFetch("match_view", "select=*&status=eq.completed&event_is_cdl=eq.true&order=scheduled_at.desc");
 }
 
 async function fetchSeriesMaps(matchId) {
@@ -46,14 +46,6 @@ async function fetchMatchPlayerStats(matchId) {
 async function fetchMatchMapStats(matchId) {
   // Per-player per-map stats for a specific match
   return mySupaFetch("map_stats_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
-}
-
-async function fetchResultMapScores(matchIds) {
-  // Fetch map scores for all completed matches in one call
-  // series_map_view has home_score, away_score, mode_short, map_name per map
-  if (!matchIds || matchIds.length === 0) return [];
-  var idFilter = "match_id=in.(" + matchIds.join(",") + ")";
-  return mySupaFetch("series_map_view", "select=*&" + idFilter + "&order=match_id,map_number.asc");
 }
 
 async function fetchRosters() {
@@ -172,7 +164,7 @@ function decodePicksParam(param) {
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
-function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches, resultMapData) {
+function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches) {
   var teamLookup = {}, teamPlayers = {}, playerTeam = {}, playerStats = {}, playerRoles = {};
 
   rosters.forEach(function(t) {
@@ -262,23 +254,6 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
   });
 
   // Completed match results — match_view gives us team names and scores
-  // Build a lookup of map scores per match from the pre-fetched data
-  var mapScoresByMatch = {};
-  (resultMapData || []).forEach(function(sm) {
-    if (!mapScoresByMatch[sm.match_id]) mapScoresByMatch[sm.match_id] = [];
-    mapScoresByMatch[sm.match_id].push({
-      map_number: sm.map_number,
-      home_score: sm.home_score,
-      away_score: sm.away_score,
-      winner_id: sm.winner_id,
-      mode_short: sm.mode_short,
-      mode_name: sm.mode_name,
-      map_name: sm.map_name,
-      home_kills: sm.home_kills,
-      away_kills: sm.away_kills
-    });
-  });
-
   var results = (completedMatches || []).map(function(m) {
     if (!m.home_team_id || !m.away_team_id) return null;
     var winnerId = m.winner_id;
@@ -295,8 +270,7 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
       awayWon: awayWon,
       home: {id: m.home_team_id, name: m.home_team_name || "", short: m.home_team_abbr || "", color: m.home_team_color || "#888", logo: m.home_team_logo},
       away: {id: m.away_team_id, name: m.away_team_name || "", short: m.away_team_abbr || "", color: m.away_team_color || "#888", logo: m.away_team_logo},
-      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""},
-      mapScores: mapScoresByMatch[m.id] || []
+      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""}
     };
   }).filter(Boolean);
 
@@ -456,7 +430,6 @@ function ResultCard(props) {
         m[p.player_id] = p.gamertag || p.player_tag || ("Player " + p.player_id);
       });
     }
-    // Also pull from roster data in case a player isn't on the leaderboard
     if (analysis && analysis.teamPlayers) {
       Object.keys(analysis.teamPlayers).forEach(function(tid) {
         (analysis.teamPlayers[tid] || []).forEach(function(p) {
@@ -488,7 +461,7 @@ function ResultCard(props) {
     }
   };
 
-  // Aggregate series stats by team from match_stats_view (per-player rows)
+  // Aggregate series stats by team
   var homeTeamSeries = null, awayTeamSeries = null;
   if (seriesStats && seriesStats.length > 0) {
     var hK = 0, hD = 0, hDmg = 0, hPlayers = [];
@@ -497,7 +470,7 @@ function ResultCard(props) {
       var isHome = p.team_id === r.home.id;
       var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
       var pKd = deaths > 0 ? kills / deaths : kills;
-      var obj = {gamertag: p.player_team_abbr ? (p.player_id) : p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0, player_id: p.player_id};
+      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0};
       if (isHome) { hK += kills; hD += deaths; hDmg += damage; hPlayers.push(obj); }
       else { aK += kills; aD += deaths; aDmg += damage; aPlayers.push(obj); }
     });
@@ -515,7 +488,7 @@ function ResultCard(props) {
       if (p.map_number !== activeMap) return;
       var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
       var pKd = deaths > 0 ? kills / deaths : kills;
-      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0, hill_time: p.hill_time || 0, first_bloods: p.first_bloods || 0, plants: p.plants || 0, defuses: p.defuses || 0};
+      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0};
       if (p.team_id === r.home.id) homeMp.push(obj);
       else awayMp.push(obj);
     });
@@ -524,58 +497,31 @@ function ResultCard(props) {
     activeMapPlayers = {home: homeMp, away: awayMp};
   }
 
-  // Use gamertagMap from analysis for player name resolution
-  var playerNames = gamertagMap;
+  // Determine which player list to show — activeMap overrides series
+  var showingMap = activeMap !== null && activeMapPlayers;
+  var displayHome = showingMap ? activeMapPlayers.home : (homeTeamSeries ? homeTeamSeries.players : []);
+  var displayAway = showingMap ? activeMapPlayers.away : (awayTeamSeries ? awayTeamSeries.players : []);
 
-  // Helper to render a stat comparison row
-  var StatRow = function(statProps) {
-    var label = statProps.label, hv = statProps.hv, av = statProps.av, fmt = statProps.fmt || "int", higherBetter = statProps.higherBetter !== false;
-    var fmtV = function(v) { return fmt === "kd" ? v.toFixed(2) : fmt === "dmg" ? Math.round(v).toLocaleString() : fmt === "diff" ? ((v >= 0 ? "+" : "") + v) : Math.round(v); };
-    var hWin = higherBetter ? hv > av : hv < av;
-    var aWin = higherBetter ? av > hv : av < hv;
-    return <div className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr auto 1fr", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-      <div className="text-right pr-3 font-semibold text-sm tabular-nums" style={{color: hWin ? "#52b788" : "#888"}}>{fmtV(hv)}</div>
-      <div className="text-center text-xs uppercase tracking-wider px-1" style={{color: "#555", minWidth: "56px"}}>{label}</div>
-      <div className="text-left pl-3 font-semibold text-sm tabular-nums" style={{color: aWin ? "#52b788" : "#888"}}>{fmtV(av)}</div>
-    </div>;
-  };
-
-  // Helper to render player stat table for a team
-  var PlayerTable = function(tableProps) {
-    var players = tableProps.players, teamColor = tableProps.color, showMode = tableProps.showMode;
-    if (!players || players.length === 0) return null;
-    return <div>
-      <div className="grid items-center py-1 mb-1" style={{gridTemplateColumns: showMode ? "1fr 44px 44px 54px 44px 44px" : "1fr 44px 44px 54px 44px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-        <span style={{fontSize: "9px", color: "#555"}}>PLAYER</span>
-        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K</span>
-        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>D</span>
-        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K/D</span>
-        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>DMG</span>
-        {showMode && <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>+/-</span>}
-      </div>
-      {players.map(function(p, i) {
-        var diff = p.kills - p.deaths;
-        return <div key={p.player_id} className="grid items-center py-1.5" style={{gridTemplateColumns: showMode ? "1fr 44px 44px 54px 44px 44px" : "1fr 44px 44px 54px 44px", borderBottom: "1px solid rgba(255,255,255,0.02)", background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"}}>
-          <span className="text-xs font-semibold truncate pr-1" style={{color: teamColor}}>{playerNames[p.player_id] || p.player_id}</span>
-          <span className="text-xs text-center font-bold text-white tabular-nums">{p.kills}</span>
-          <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{p.deaths}</span>
-          <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(p.kd)}}>{p.kd.toFixed(2)}</span>
-          <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(p.damage / 1000) + "k"}</span>
-          {showMode && <span className="text-xs text-center font-bold tabular-nums" style={{color: diff >= 0 ? "#52b788" : "#ff6b6b"}}>{diff >= 0 ? "+" : ""}{diff}</span>}
-        </div>;
-      })}
+  // Player stat row renderer
+  var renderPlayerRow = function(p, i, teamColor) {
+    var diff = p.kills - p.deaths;
+    return <div key={p.player_id} className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderBottom: "1px solid rgba(255,255,255,0.02)", background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"}}>
+      <span className="text-xs font-semibold truncate pr-1" style={{color: teamColor}}>{gamertagMap[p.player_id] || p.player_id}</span>
+      <span className="text-xs text-center font-bold text-white tabular-nums">{p.kills}</span>
+      <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{p.deaths}</span>
+      <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(p.kd)}}>{p.kd.toFixed(2)}</span>
+      <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(p.damage).toLocaleString()}</span>
+      <span className="text-xs text-center font-bold tabular-nums" style={{color: diff >= 0 ? "#52b788" : "#ff6b6b"}}>{diff >= 0 ? "+" : ""}{diff}</span>
     </div>;
   };
 
   return <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+    {/* Collapsed — clean series score */}
     <div className="p-4 cursor-pointer" onClick={handleExpand}>
-      {/* Event + status */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs uppercase tracking-wider opacity-40">{r.event.short || r.event.name} · Bo{r.bestOf}</span>
         <span className="text-xs px-2 py-0.5 rounded-full" style={{background: "rgba(82,183,136,0.12)", color: "#52b788"}}>Final</span>
       </div>
-
-      {/* Series score */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-8 rounded" style={{background: r.home.color}} />
@@ -591,97 +537,119 @@ function ResultCard(props) {
           <div className="w-2 h-8 rounded" style={{background: r.away.color}} />
         </div>
       </div>
-
-      {/* Map scores — always visible */}
-      {r.mapScores && r.mapScores.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">
-        {r.mapScores.map(function(ms, i) {
-          var homeWonMap = ms.winner_id === r.home.id;
-          return <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.04)"}}>
-            <span style={{fontSize: "10px", color: "#666", fontWeight: 600}}>{ms.mode_short || "M" + (i + 1)}</span>
-            <span className="text-xs font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{ms.home_score}</span>
-            <span style={{fontSize: "9px", color: "#444"}}>-</span>
-            <span className="text-xs font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{ms.away_score}</span>
-          </div>;
-        })}
-      </div>}
-
-      {/* Footer */}
       <div className="flex justify-between mt-3 text-xs opacity-50">
         <span>{utcToET(r.datetime)}</span>
         <span style={{color: winnerColor}}>{winnerShort} wins</span>
-        <span>{expanded ? "\u25B2 collapse" : "\u25BC stats"}</span>
+        <span>{expanded ? "\u25B2 collapse" : "\u25BC details"}</span>
       </div>
     </div>
 
-    {/* Expanded detail */}
+    {/* Expanded */}
     {expanded && <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
       {detailLoading && <div className="py-6 text-center"><div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading stats...</p></div>}
 
       {homeTeamSeries && awayTeamSeries && <div>
-        {/* Series team totals */}
-        <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Series totals</div>
-        <div className="rounded-lg overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)"}}>
-          <div className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr auto 1fr", background: "rgba(255,255,255,0.04)"}}>
-            <div className="text-right pr-3 text-xs font-bold" style={{color: r.home.color}}>{r.home.short}</div>
-            <div className="text-center text-xs opacity-30 px-1" style={{minWidth: "56px"}}>vs</div>
-            <div className="text-left pl-3 text-xs font-bold" style={{color: r.away.color}}>{r.away.short}</div>
+        {/* Map scores row — always visible in expanded */}
+        {maps && maps.length > 0 && <div className="rounded-lg overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)"}}>
+          {/* Header row */}
+          <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "40px 1fr 1fr 48px 48px", background: "rgba(255,255,255,0.04)"}}>
+            <span style={{fontSize: "9px", color: "#555"}}>MAP</span>
+            <span style={{fontSize: "9px", color: "#555"}}>MODE</span>
+            <span style={{fontSize: "9px", color: "#555"}}>MAP</span>
+            <span style={{fontSize: "9px", color: r.home.color, textAlign: "center", fontWeight: 700}}>{r.home.short}</span>
+            <span style={{fontSize: "9px", color: r.away.color, textAlign: "center", fontWeight: 700}}>{r.away.short}</span>
           </div>
-          <div style={{padding: "0 8px"}}>
-            <StatRow label="Kills" hv={homeTeamSeries.kills} av={awayTeamSeries.kills} />
-            <StatRow label="Deaths" hv={homeTeamSeries.deaths} av={awayTeamSeries.deaths} higherBetter={false} />
-            <StatRow label="+/-" hv={homeTeamSeries.diff} av={awayTeamSeries.diff} fmt="diff" />
-            <StatRow label="K/D" hv={homeTeamSeries.kd} av={awayTeamSeries.kd} fmt="kd" />
-            <StatRow label="Damage" hv={homeTeamSeries.damage} av={awayTeamSeries.damage} fmt="dmg" />
-          </div>
+          {maps.map(function(m) {
+            var homeWonMap = m.winner_id === r.home.id;
+            return <div key={m.map_number} className="grid items-center py-1.5 px-2" style={{gridTemplateColumns: "40px 1fr 1fr 48px 48px", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+              <span className="text-xs font-bold" style={{color: "#555"}}>{m.map_number}</span>
+              <span className="text-xs font-semibold" style={{color: "#888"}}>{m.mode_short || m.mode_name}</span>
+              <span className="text-xs" style={{color: "#666"}}>{m.map_name}</span>
+              <span className="text-sm font-bold text-center tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
+              <span className="text-sm font-bold text-center tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
+            </div>;
+          })}
+        </div>}
+
+        {/* View toggle — Series (default) vs individual maps */}
+        <div className="flex gap-1 mb-3 flex-wrap">
+          <button onClick={function(e) { e.stopPropagation(); setActiveMap(null); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+            background: activeMap === null ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
+            border: activeMap === null ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
+            color: activeMap === null ? "#e94560" : "#666"
+          }}>Series</button>
+          {maps && maps.map(function(m) {
+            var isActive = activeMap === m.map_number;
+            return <button key={m.map_number} onClick={function(e) { e.stopPropagation(); setActiveMap(m.map_number); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+              background: isActive ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
+              border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
+              color: isActive ? "#e94560" : "#666"
+            }}>
+              <span>Map {m.map_number}</span>
+            </button>;
+          })}
         </div>
 
-        {/* Map selector tabs */}
-        {maps && maps.length > 0 && <div>
-          <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Map breakdown</div>
-          <div className="flex gap-1 mb-3 flex-wrap">
-            {maps.map(function(m) {
-              var isActive = activeMap === m.map_number;
-              var homeWonMap = m.winner_id === r.home.id;
-              var mapWinColor = homeWonMap ? r.home.color : r.away.color;
-              return <button key={m.map_number} onClick={function(e) { e.stopPropagation(); setActiveMap(isActive ? null : m.map_number); }} className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-                background: isActive ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
-                border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
-                color: isActive ? "#e94560" : "#666"
-              }}>
-                <span>{m.mode_short || "M" + m.map_number}</span>
-                <span style={{marginLeft: "4px", color: isActive ? mapWinColor : "#555"}}>{m.home_score}-{m.away_score}</span>
-              </button>;
-            })}
+        {/* Active map header when viewing a specific map */}
+        {showingMap && maps && maps.filter(function(m) { return m.map_number === activeMap; }).map(function(m) {
+          var homeWonMap = m.winner_id === r.home.id;
+          return <div key={m.map_number} className="flex items-center justify-between px-2 py-2 mb-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold" style={{color: "#888"}}>{m.mode_name}</span>
+              <span className="text-xs" style={{color: "#555"}}>{m.map_name}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
+              <span style={{fontSize: "9px", color: "#444"}}>-</span>
+              <span className="text-sm font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
+            </div>
+          </div>;
+        })}
+
+        {/* Player stats table */}
+        <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
+          {/* Column headers */}
+          <div className="grid items-center py-1.5 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <span style={{fontSize: "9px", color: "#555"}}>PLAYER</span>
+            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K</span>
+            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>D</span>
+            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K/D</span>
+            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>DMG</span>
+            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>+/-</span>
           </div>
 
-          {/* Per-map player stats */}
-          {activeMapPlayers && <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
-            {/* Active map info */}
-            {maps.filter(function(m) { return m.map_number === activeMap; }).map(function(m) {
-              var homeWonMap = m.winner_id === r.home.id;
-              return <div key={m.map_number} className="px-3 py-2 flex items-center justify-between" style={{background: "rgba(255,255,255,0.04)"}}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold" style={{color: "#888"}}>{m.mode_name}</span>
-                  <span className="text-xs" style={{color: "#555"}}>{m.map_name}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
-                  <span style={{fontSize: "9px", color: "#444"}}>-</span>
-                  <span className="text-sm font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
-                </div>
-              </div>;
-            })}
+          {/* Home team */}
+          <div className="px-2">
+            <div className="flex items-center gap-2 mt-2 mb-1"><div className="w-1 h-3 rounded" style={{background: r.home.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.home.color}}>{r.home.short}</span></div>
+            {displayHome.map(function(p, i) { return renderPlayerRow(p, i, r.home.color); })}
+          </div>
 
-            <div className="px-2 py-2">
-              <div className="flex items-center gap-2 mb-1 mt-1"><div className="w-1 h-3 rounded" style={{background: r.home.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.home.color}}>{r.home.short}</span></div>
-              <PlayerTable players={activeMapPlayers.home} color={r.home.color} showMode={true} />
-              <div className="flex items-center gap-2 mb-1 mt-3"><div className="w-1 h-3 rounded" style={{background: r.away.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.away.color}}>{r.away.short}</span></div>
-              <PlayerTable players={activeMapPlayers.away} color={r.away.color} showMode={true} />
+          {/* Away team */}
+          <div className="px-2">
+            <div className="flex items-center gap-2 mt-3 mb-1"><div className="w-1 h-3 rounded" style={{background: r.away.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.away.color}}>{r.away.short}</span></div>
+            {displayAway.map(function(p, i) { return renderPlayerRow(p, i, r.away.color); })}
+          </div>
+
+          {/* Series team totals footer — only show in series view */}
+          {!showingMap && <div style={{borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: "8px"}}>
+            <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px"}}>
+              <span className="text-xs font-bold" style={{color: r.home.color}}>{r.home.short} total</span>
+              <span className="text-xs text-center font-bold text-white tabular-nums">{homeTeamSeries.kills}</span>
+              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{homeTeamSeries.deaths}</span>
+              <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(homeTeamSeries.kd)}}>{homeTeamSeries.kd.toFixed(2)}</span>
+              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(homeTeamSeries.damage).toLocaleString()}</span>
+              <span className="text-xs text-center font-bold tabular-nums" style={{color: homeTeamSeries.diff >= 0 ? "#52b788" : "#ff6b6b"}}>{homeTeamSeries.diff >= 0 ? "+" : ""}{homeTeamSeries.diff}</span>
+            </div>
+            <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderTop: "1px solid rgba(255,255,255,0.02)"}}>
+              <span className="text-xs font-bold" style={{color: r.away.color}}>{r.away.short} total</span>
+              <span className="text-xs text-center font-bold text-white tabular-nums">{awayTeamSeries.kills}</span>
+              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{awayTeamSeries.deaths}</span>
+              <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(awayTeamSeries.kd)}}>{awayTeamSeries.kd.toFixed(2)}</span>
+              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(awayTeamSeries.damage).toLocaleString()}</span>
+              <span className="text-xs text-center font-bold tabular-nums" style={{color: awayTeamSeries.diff >= 0 ? "#52b788" : "#ff6b6b"}}>{awayTeamSeries.diff >= 0 ? "+" : ""}{awayTeamSeries.diff}</span>
             </div>
           </div>}
-
-          {activeMap === null && <div className="text-center py-3 text-xs" style={{color: "#555"}}>Tap a map above to see player stats</div>}
-        </div>}
+        </div>
       </div>}
 
       {/* Team links */}
@@ -1559,6 +1527,29 @@ function CDLLinesTab(props) {
 function ScheduleTab(props) {
   var analysis = props.analysis, openTeam = props.openTeam;
   var [view, setView] = useState("upcoming");
+  var [selectedEventId, setSelectedEventId] = useState(null);
+
+  // Extract unique events from completed results
+  var resultEvents = useMemo(function() {
+    var seen = {};
+    var list = [];
+    (analysis.results || []).forEach(function(r) {
+      var ev = r.event;
+      if (ev && ev.id && !seen[ev.id]) {
+        seen[ev.id] = true;
+        list.push({id: ev.id, name: ev.name || "", short: ev.short || ""});
+      }
+    });
+    return list;
+  }, [analysis.results]);
+
+  // Default to the first event (most recent matches come first, so first event = current)
+  var activeEventId = selectedEventId || (resultEvents.length > 0 ? resultEvents[0].id : null);
+
+  // Filter results by selected event
+  var filteredResults = activeEventId ? (analysis.results || []).filter(function(r) {
+    return r.event && r.event.id === activeEventId;
+  }) : (analysis.results || []);
 
   return <div className="space-y-3">
     <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
@@ -1581,8 +1572,20 @@ function ScheduleTab(props) {
     </div>}
 
     {view === "results" && <div className="space-y-3">
-      {analysis.results.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} analysis={analysis} />; })}
-      {analysis.results.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No completed matches yet</p></div>}
+      {/* Event selector */}
+      {resultEvents.length > 1 && <div className="flex flex-wrap gap-1.5">
+        {resultEvents.map(function(ev) {
+          var isActive = ev.id === activeEventId;
+          return <button key={ev.id} onClick={function() { setSelectedEventId(ev.id); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+            background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
+            color: isActive ? "#e94560" : "#666",
+            border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
+          }}>{ev.short || ev.name}</button>;
+        })}
+      </div>}
+
+      {filteredResults.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} analysis={analysis} />; })}
+      {filteredResults.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No completed matches for this event</p></div>}
     </div>}
   </div>;
 }
@@ -1999,11 +2002,7 @@ export default function App() {
         setLoading(true);
         setError(null);
         var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID), fetchResults()]);
-        // Second pass: fetch map scores for all completed matches
-        var completedMatches = results[6] || [];
-        var matchIds = completedMatches.map(function(m) { return m.id; }).filter(Boolean);
-        var resultMapData = matchIds.length > 0 ? await fetchResultMapScores(matchIds) : [];
-        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], completedMatches, resultMapData));
+        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], results[6]));
       } catch(e) {
         console.error(e);
         setError(e.message);

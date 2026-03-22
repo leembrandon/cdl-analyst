@@ -730,6 +730,15 @@ export function renderResultCard(data) {
   fillRoundedRect(ctx, CARD_PADDING, y + 20, 4, 40, 2, homeColor);
   drawText(ctx, data.home.short || "?", CARD_PADDING + 16, y + 18, {size: 24, weight: "900", color: data.homeWon ? TEXT_WHITE : "#555555", align: "left"});
 
+  // Date/time under home team name
+  if (data.datetime) {
+    try {
+      var d = new Date(data.datetime);
+      var dateStr = d.toLocaleString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+      drawText(ctx, dateStr, CARD_PADDING + 16, y + 46, {size: 10, weight: "400", color: TEXT_DIM, align: "left"});
+    } catch(e) {}
+  }
+
   drawText(ctx, String(data.homeScore || 0), mid - 24, y + 14, {size: 36, weight: "900", color: data.homeWon ? TEXT_WHITE : "#555555", align: "right"});
   drawText(ctx, "-", mid, y + 20, {size: 24, weight: "400", color: "rgba(255,255,255,0.2)", align: "center"});
   drawText(ctx, String(data.awayScore || 0), mid + 24, y + 14, {size: 36, weight: "900", color: data.awayWon ? TEXT_WHITE : "#555555", align: "left"});
@@ -738,6 +747,7 @@ export function renderResultCard(data) {
   fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 4, y + 20, 4, 40, 2, awayColor);
 
   drawText(ctx, "FINAL", mid, y + 62, {size: 9, weight: "700", color: GREEN, align: "center"});
+
   y += scoreH;
 
   // --- Map scores table ---

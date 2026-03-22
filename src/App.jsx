@@ -1372,8 +1372,34 @@ function PicksTab(props) {
   });
   var [linkCopied, setLinkCopied] = useState(false);
   var [sharing, setSharing] = useState(false);
+  var [selectedEventId, setSelectedEventId] = useState(null);
 
   var matchups = analysis.matchups;
+
+  // Extract unique events from matchups
+  var events = useMemo(function() {
+    var seen = {};
+    var list = [];
+    matchups.forEach(function(mu) {
+      var ev = mu.event;
+      if (ev && ev.id && !seen[ev.id]) {
+        seen[ev.id] = true;
+        list.push({id: ev.id, name: ev.name || "", short: ev.name_short || ""});
+      }
+    });
+    return list;
+  }, [matchups]);
+
+  // Default to the first event if not selected
+  var activeEventId = selectedEventId || (events.length > 0 ? events[0].id : null);
+  var activeEvent = events.find(function(e) { return e.id === activeEventId; }) || events[0] || null;
+  var activeEventName = activeEvent ? (activeEvent.name || activeEvent.short || "Picks") : "Picks";
+  var activeEventShort = activeEvent ? (activeEvent.short || activeEvent.name || "Picks") : "Picks";
+
+  // Filter matchups by selected event
+  var filteredMatchups = activeEventId ? matchups.filter(function(mu) {
+    return mu.event && mu.event.id === activeEventId;
+  }) : matchups;
 
   var handlePick = function(matchId, pick) {
     setPicks(function(prev) {
@@ -1393,15 +1419,33 @@ function PicksTab(props) {
     });
   };
 
+  // Count picks only for the filtered matches
+  var filteredMatchIds = {};
+  filteredMatchups.forEach(function(mu) { filteredMatchIds[mu.id] = true; });
   var completedPicks = Object.keys(picks).filter(function(mid) {
     var p = picks[mid];
-    return p && p.teamId && p.score;
+    return p && p.teamId && p.score && filteredMatchIds[mid];
   });
-  var totalMatches = matchups.length;
+  var totalMatches = filteredMatchups.length;
   var pickedCount = completedPicks.length;
 
+  var handleClearAll = function() {
+    setPicks(function(prev) {
+      var next = Object.assign({}, prev);
+      // Only clear picks for the currently filtered matches
+      filteredMatchups.forEach(function(mu) {
+        delete next[mu.id];
+      });
+      savePicks(next);
+      return next;
+    });
+  };
+
   var handleCopyLink = function() {
-    var encoded = encodePicksParam(picks);
+    // Only encode picks for the current event
+    var eventPicks = {};
+    completedPicks.forEach(function(mid) { eventPicks[mid] = picks[mid]; });
+    var encoded = encodePicksParam(eventPicks);
     if (!encoded) return;
     var url = window.location.origin + window.location.pathname + "?picks=" + encoded;
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1416,10 +1460,10 @@ function PicksTab(props) {
   var handleShareImage = function() {
     if (sharing || pickedCount === 0) return;
     setSharing(true);
-    // Build pick data for the share renderer
+    // Build pick data for the share renderer — only current event
     var pickData = completedPicks.map(function(mid) {
       var p = picks[mid];
-      var mu = matchups.find(function(m) { return String(m.id) === String(mid); });
+      var mu = filteredMatchups.find(function(m) { return String(m.id) === String(mid); });
       if (!mu) return null;
       var isT1 = p.teamId === mu.home_team_id;
       return {
@@ -1433,11 +1477,13 @@ function PicksTab(props) {
       };
     }).filter(Boolean);
 
-    var encoded = encodePicksParam(picks);
+    var eventPicks = {};
+    completedPicks.forEach(function(mid) { eventPicks[mid] = picks[mid]; });
+    var encoded = encodePicksParam(eventPicks);
     var shareUrl = window.location.origin + window.location.pathname + "?picks=" + encoded;
 
     import("./shareRenderer.js").then(function(mod) {
-      return mod.sharePicksImage(pickData, shareUrl);
+      return mod.sharePicksImage(pickData, shareUrl, activeEventName);
     }).then(function() { setSharing(false); }).catch(function(e) { console.error(e); setSharing(false); });
   };
 
@@ -1448,10 +1494,23 @@ function PicksTab(props) {
   };
 
   return <div>
+    {/* Header with event name */}
     <div className="mb-4">
-      <h2 className="text-lg font-bold text-white mb-1">{viewingShared ? "Shared picks" : "Make your picks"}</h2>
+      <h2 className="text-lg font-bold text-white mb-1">{viewingShared ? "Shared picks" : activeEventName}</h2>
       <p className="text-xs" style={{color: "#555"}}>{viewingShared ? "Someone shared their predictions with you" : "Pick who you think wins each series and the score"}</p>
     </div>
+
+    {/* Event selector — only show if there are multiple events */}
+    {events.length > 1 && <div className="flex flex-wrap gap-1.5 mb-4">
+      {events.map(function(ev) {
+        var isActive = ev.id === activeEventId;
+        return <button key={ev.id} onClick={function() { setSelectedEventId(ev.id); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+          background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
+          color: isActive ? "#e94560" : "#666",
+          border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
+        }}>{ev.short || ev.name}</button>;
+      })}
+    </div>}
 
     {/* Summary card */}
     <div className="rounded-xl p-4 mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
@@ -1484,7 +1543,10 @@ function PicksTab(props) {
         </button>
       </div>}
 
-      {/* Adopt shared picks */}
+      {/* Clear all + Adopt shared */}
+      {pickedCount > 0 && !viewingShared && <div className="mt-3 pt-3 flex justify-end" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <button onClick={handleClearAll} className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-100" style={{background: "rgba(255,107,107,0.08)", color: "#ff6b6b", border: "1px solid rgba(255,107,107,0.15)", opacity: 0.7}}>Clear all picks</button>
+      </div>}
       {viewingShared && <div className="mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
         <button onClick={handleAdoptPicks} className="w-full py-2 rounded-xl text-sm font-bold" style={{background: "rgba(83,168,182,0.15)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>Save these picks as mine</button>
       </div>}
@@ -1492,10 +1554,10 @@ function PicksTab(props) {
 
     {/* Match pick cards */}
     <div className="space-y-3">
-      {matchups.map(function(mu) {
+      {filteredMatchups.map(function(mu) {
         return <PickCard key={mu.id} mu={mu} pick={picks[mu.id] || null} onPick={handlePick} />;
       })}
-      {matchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches to pick</p></div>}
+      {filteredMatchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches for this event</p></div>}
     </div>
   </div>;
 }

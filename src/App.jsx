@@ -38,6 +38,24 @@ async function fetchSeriesMaps(matchId) {
   return mySupaFetch("series_map_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
 }
 
+async function fetchMatchPlayerStats(matchId) {
+  // Per-player series totals for a specific match
+  return mySupaFetch("match_stats_view", "select=*&match_id=eq." + matchId);
+}
+
+async function fetchMatchMapStats(matchId) {
+  // Per-player per-map stats for a specific match
+  return mySupaFetch("map_stats_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
+}
+
+async function fetchResultMapScores(matchIds) {
+  // Fetch map scores for all completed matches in one call
+  // series_map_view has home_score, away_score, mode_short, map_name per map
+  if (!matchIds || matchIds.length === 0) return [];
+  var idFilter = "match_id=in.(" + matchIds.join(",") + ")";
+  return mySupaFetch("series_map_view", "select=*&" + idFilter + "&order=match_id,map_number.asc");
+}
+
 async function fetchRosters() {
   // roster_view joins rosters + players + teams + roles
   var rows = await mySupaFetch("roster_view", "select=*");
@@ -154,7 +172,7 @@ function decodePicksParam(param) {
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
-function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches) {
+function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches, resultMapData) {
   var teamLookup = {}, teamPlayers = {}, playerTeam = {}, playerStats = {}, playerRoles = {};
 
   rosters.forEach(function(t) {
@@ -244,6 +262,23 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
   });
 
   // Completed match results — match_view gives us team names and scores
+  // Build a lookup of map scores per match from the pre-fetched data
+  var mapScoresByMatch = {};
+  (resultMapData || []).forEach(function(sm) {
+    if (!mapScoresByMatch[sm.match_id]) mapScoresByMatch[sm.match_id] = [];
+    mapScoresByMatch[sm.match_id].push({
+      map_number: sm.map_number,
+      home_score: sm.home_score,
+      away_score: sm.away_score,
+      winner_id: sm.winner_id,
+      mode_short: sm.mode_short,
+      mode_name: sm.mode_name,
+      map_name: sm.map_name,
+      home_kills: sm.home_kills,
+      away_kills: sm.away_kills
+    });
+  });
+
   var results = (completedMatches || []).map(function(m) {
     if (!m.home_team_id || !m.away_team_id) return null;
     var winnerId = m.winner_id;
@@ -260,7 +295,8 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
       awayWon: awayWon,
       home: {id: m.home_team_id, name: m.home_team_name || "", short: m.home_team_abbr || "", color: m.home_team_color || "#888", logo: m.home_team_logo},
       away: {id: m.away_team_id, name: m.away_team_name || "", short: m.away_team_abbr || "", color: m.away_team_color || "#888", logo: m.away_team_logo},
-      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""}
+      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""},
+      mapScores: mapScoresByMatch[m.id] || []
     };
   }).filter(Boolean);
 
@@ -401,36 +437,145 @@ function MatchCard(props) {
 }
 
 function ResultCard(props) {
-  var r = props.result, onTeamClick = props.onTeamClick;
+  var r = props.result, onTeamClick = props.onTeamClick, analysis = props.analysis;
   var [expanded, setExpanded] = useState(false);
   var [maps, setMaps] = useState(null);
-  var [mapsLoading, setMapsLoading] = useState(false);
+  var [seriesStats, setSeriesStats] = useState(null);
+  var [mapPlayerStats, setMapPlayerStats] = useState(null);
+  var [detailLoading, setDetailLoading] = useState(false);
+  var [activeMap, setActiveMap] = useState(null);
 
   var winnerShort = r.homeWon ? r.home.short : r.away.short;
   var winnerColor = r.homeWon ? r.home.color : r.away.color;
-  var loserShort = r.homeWon ? r.away.short : r.home.short;
+
+  // Build gamertag lookup from leaderboard + roster data
+  var gamertagMap = useMemo(function() {
+    var m = {};
+    if (analysis && analysis.playerStats) {
+      analysis.playerStats.forEach(function(p) {
+        m[p.player_id] = p.gamertag || p.player_tag || ("Player " + p.player_id);
+      });
+    }
+    // Also pull from roster data in case a player isn't on the leaderboard
+    if (analysis && analysis.teamPlayers) {
+      Object.keys(analysis.teamPlayers).forEach(function(tid) {
+        (analysis.teamPlayers[tid] || []).forEach(function(p) {
+          if (p.id && p.name && !m[p.id]) m[p.id] = p.name;
+        });
+      });
+    }
+    return m;
+  }, [analysis]);
 
   var handleExpand = function() {
     var next = !expanded;
     setExpanded(next);
-    if (next && !maps && !mapsLoading) {
-      setMapsLoading(true);
-      fetchSeriesMaps(r.id).then(function(data) {
-        setMaps(data || []);
+    if (next && !seriesStats && !detailLoading) {
+      setDetailLoading(true);
+      Promise.all([
+        fetchSeriesMaps(r.id),
+        fetchMatchPlayerStats(r.id),
+        fetchMatchMapStats(r.id)
+      ]).then(function(res) {
+        setMaps(res[0] || []);
+        setSeriesStats(res[1] || []);
+        setMapPlayerStats(res[2] || []);
       }).catch(function() {
-        setMaps([]);
+        setMaps([]); setSeriesStats([]); setMapPlayerStats([]);
       }).finally(function() {
-        setMapsLoading(false);
+        setDetailLoading(false);
       });
     }
   };
 
+  // Aggregate series stats by team from match_stats_view (per-player rows)
+  var homeTeamSeries = null, awayTeamSeries = null;
+  if (seriesStats && seriesStats.length > 0) {
+    var hK = 0, hD = 0, hDmg = 0, hPlayers = [];
+    var aK = 0, aD = 0, aDmg = 0, aPlayers = [];
+    seriesStats.forEach(function(p) {
+      var isHome = p.team_id === r.home.id;
+      var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
+      var pKd = deaths > 0 ? kills / deaths : kills;
+      var obj = {gamertag: p.player_team_abbr ? (p.player_id) : p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0, player_id: p.player_id};
+      if (isHome) { hK += kills; hD += deaths; hDmg += damage; hPlayers.push(obj); }
+      else { aK += kills; aD += deaths; aDmg += damage; aPlayers.push(obj); }
+    });
+    hPlayers.sort(function(a, b) { return b.kills - a.kills; });
+    aPlayers.sort(function(a, b) { return b.kills - a.kills; });
+    homeTeamSeries = {kills: hK, deaths: hD, damage: hDmg, diff: hK - hD, kd: hD > 0 ? hK / hD : hK, players: hPlayers};
+    awayTeamSeries = {kills: aK, deaths: aD, damage: aDmg, diff: aK - aD, kd: aD > 0 ? aK / aD : aK, players: aPlayers};
+  }
+
+  // Get per-map player stats for the active map
+  var activeMapPlayers = null;
+  if (activeMap !== null && mapPlayerStats) {
+    var homeMp = [], awayMp = [];
+    mapPlayerStats.forEach(function(p) {
+      if (p.map_number !== activeMap) return;
+      var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
+      var pKd = deaths > 0 ? kills / deaths : kills;
+      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0, hill_time: p.hill_time || 0, first_bloods: p.first_bloods || 0, plants: p.plants || 0, defuses: p.defuses || 0};
+      if (p.team_id === r.home.id) homeMp.push(obj);
+      else awayMp.push(obj);
+    });
+    homeMp.sort(function(a, b) { return b.kills - a.kills; });
+    awayMp.sort(function(a, b) { return b.kills - a.kills; });
+    activeMapPlayers = {home: homeMp, away: awayMp};
+  }
+
+  // Use gamertagMap from analysis for player name resolution
+  var playerNames = gamertagMap;
+
+  // Helper to render a stat comparison row
+  var StatRow = function(statProps) {
+    var label = statProps.label, hv = statProps.hv, av = statProps.av, fmt = statProps.fmt || "int", higherBetter = statProps.higherBetter !== false;
+    var fmtV = function(v) { return fmt === "kd" ? v.toFixed(2) : fmt === "dmg" ? Math.round(v).toLocaleString() : fmt === "diff" ? ((v >= 0 ? "+" : "") + v) : Math.round(v); };
+    var hWin = higherBetter ? hv > av : hv < av;
+    var aWin = higherBetter ? av > hv : av < hv;
+    return <div className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr auto 1fr", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+      <div className="text-right pr-3 font-semibold text-sm tabular-nums" style={{color: hWin ? "#52b788" : "#888"}}>{fmtV(hv)}</div>
+      <div className="text-center text-xs uppercase tracking-wider px-1" style={{color: "#555", minWidth: "56px"}}>{label}</div>
+      <div className="text-left pl-3 font-semibold text-sm tabular-nums" style={{color: aWin ? "#52b788" : "#888"}}>{fmtV(av)}</div>
+    </div>;
+  };
+
+  // Helper to render player stat table for a team
+  var PlayerTable = function(tableProps) {
+    var players = tableProps.players, teamColor = tableProps.color, showMode = tableProps.showMode;
+    if (!players || players.length === 0) return null;
+    return <div>
+      <div className="grid items-center py-1 mb-1" style={{gridTemplateColumns: showMode ? "1fr 44px 44px 54px 44px 44px" : "1fr 44px 44px 54px 44px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+        <span style={{fontSize: "9px", color: "#555"}}>PLAYER</span>
+        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K</span>
+        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>D</span>
+        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K/D</span>
+        <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>DMG</span>
+        {showMode && <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>+/-</span>}
+      </div>
+      {players.map(function(p, i) {
+        var diff = p.kills - p.deaths;
+        return <div key={p.player_id} className="grid items-center py-1.5" style={{gridTemplateColumns: showMode ? "1fr 44px 44px 54px 44px 44px" : "1fr 44px 44px 54px 44px", borderBottom: "1px solid rgba(255,255,255,0.02)", background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"}}>
+          <span className="text-xs font-semibold truncate pr-1" style={{color: teamColor}}>{playerNames[p.player_id] || p.player_id}</span>
+          <span className="text-xs text-center font-bold text-white tabular-nums">{p.kills}</span>
+          <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{p.deaths}</span>
+          <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(p.kd)}}>{p.kd.toFixed(2)}</span>
+          <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(p.damage / 1000) + "k"}</span>
+          {showMode && <span className="text-xs text-center font-bold tabular-nums" style={{color: diff >= 0 ? "#52b788" : "#ff6b6b"}}>{diff >= 0 ? "+" : ""}{diff}</span>}
+        </div>;
+      })}
+    </div>;
+  };
+
   return <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
     <div className="p-4 cursor-pointer" onClick={handleExpand}>
+      {/* Event + status */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs uppercase tracking-wider opacity-40">{r.event.short || r.event.name} · Bo{r.bestOf}</span>
         <span className="text-xs px-2 py-0.5 rounded-full" style={{background: "rgba(82,183,136,0.12)", color: "#52b788"}}>Final</span>
       </div>
+
+      {/* Series score */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-8 rounded" style={{background: r.home.color}} />
@@ -446,42 +591,98 @@ function ResultCard(props) {
           <div className="w-2 h-8 rounded" style={{background: r.away.color}} />
         </div>
       </div>
-      <div className="flex justify-between mt-3 text-xs opacity-50">
-        <span>{utcToET(r.datetime)}</span>
-        <span style={{color: winnerColor}}>{winnerShort} wins {r.homeWon ? r.homeScore : r.awayScore}-{r.homeWon ? r.awayScore : r.homeScore}</span>
-        <span>{expanded ? "\u25B2 collapse" : "\u25BC map details"}</span>
-      </div>
-    </div>
 
-    {expanded && <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
-      {mapsLoading && <div className="py-4 text-center"><div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /></div>}
-
-      {maps && maps.length > 0 && <div>
-        <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Map breakdown</div>
-
-        {/* Column headers */}
-        <div className="grid items-center py-1.5 mb-1" style={{gridTemplateColumns: "24px 1fr 1fr 60px 60px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-          <span style={{fontSize: "10px", color: "#555"}}>#</span>
-          <span style={{fontSize: "10px", color: "#555"}}>Mode</span>
-          <span style={{fontSize: "10px", color: "#555"}}>Map</span>
-          <span style={{fontSize: "10px", color: r.home.color, textAlign: "center", fontWeight: 700}}>{r.home.short}</span>
-          <span style={{fontSize: "10px", color: r.away.color, textAlign: "center", fontWeight: 700}}>{r.away.short}</span>
-        </div>
-
-        {maps.map(function(m) {
-          var homeWonMap = m.winner_id === r.home.id;
-          var awayWonMap = m.winner_id === r.away.id;
-          return <div key={m.id} className="grid items-center py-2" style={{gridTemplateColumns: "24px 1fr 1fr 60px 60px", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-            <span className="text-xs font-bold" style={{color: "#555"}}>{m.map_number}</span>
-            <span className="text-xs font-semibold" style={{color: "#888"}}>{m.mode_short || m.mode_name}</span>
-            <span className="text-xs" style={{color: "#666"}}>{m.map_name}</span>
-            <span className="text-sm font-bold text-center tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
-            <span className="text-sm font-bold text-center tabular-nums" style={{color: awayWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
+      {/* Map scores — always visible */}
+      {r.mapScores && r.mapScores.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">
+        {r.mapScores.map(function(ms, i) {
+          var homeWonMap = ms.winner_id === r.home.id;
+          return <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.04)"}}>
+            <span style={{fontSize: "10px", color: "#666", fontWeight: 600}}>{ms.mode_short || "M" + (i + 1)}</span>
+            <span className="text-xs font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{ms.home_score}</span>
+            <span style={{fontSize: "9px", color: "#444"}}>-</span>
+            <span className="text-xs font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{ms.away_score}</span>
           </div>;
         })}
       </div>}
 
-      {maps && maps.length === 0 && <div className="py-3 text-center text-xs" style={{color: "#555"}}>No map data available</div>}
+      {/* Footer */}
+      <div className="flex justify-between mt-3 text-xs opacity-50">
+        <span>{utcToET(r.datetime)}</span>
+        <span style={{color: winnerColor}}>{winnerShort} wins</span>
+        <span>{expanded ? "\u25B2 collapse" : "\u25BC stats"}</span>
+      </div>
+    </div>
+
+    {/* Expanded detail */}
+    {expanded && <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
+      {detailLoading && <div className="py-6 text-center"><div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading stats...</p></div>}
+
+      {homeTeamSeries && awayTeamSeries && <div>
+        {/* Series team totals */}
+        <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Series totals</div>
+        <div className="rounded-lg overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)"}}>
+          <div className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr auto 1fr", background: "rgba(255,255,255,0.04)"}}>
+            <div className="text-right pr-3 text-xs font-bold" style={{color: r.home.color}}>{r.home.short}</div>
+            <div className="text-center text-xs opacity-30 px-1" style={{minWidth: "56px"}}>vs</div>
+            <div className="text-left pl-3 text-xs font-bold" style={{color: r.away.color}}>{r.away.short}</div>
+          </div>
+          <div style={{padding: "0 8px"}}>
+            <StatRow label="Kills" hv={homeTeamSeries.kills} av={awayTeamSeries.kills} />
+            <StatRow label="Deaths" hv={homeTeamSeries.deaths} av={awayTeamSeries.deaths} higherBetter={false} />
+            <StatRow label="+/-" hv={homeTeamSeries.diff} av={awayTeamSeries.diff} fmt="diff" />
+            <StatRow label="K/D" hv={homeTeamSeries.kd} av={awayTeamSeries.kd} fmt="kd" />
+            <StatRow label="Damage" hv={homeTeamSeries.damage} av={awayTeamSeries.damage} fmt="dmg" />
+          </div>
+        </div>
+
+        {/* Map selector tabs */}
+        {maps && maps.length > 0 && <div>
+          <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Map breakdown</div>
+          <div className="flex gap-1 mb-3 flex-wrap">
+            {maps.map(function(m) {
+              var isActive = activeMap === m.map_number;
+              var homeWonMap = m.winner_id === r.home.id;
+              var mapWinColor = homeWonMap ? r.home.color : r.away.color;
+              return <button key={m.map_number} onClick={function(e) { e.stopPropagation(); setActiveMap(isActive ? null : m.map_number); }} className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+                background: isActive ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
+                border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
+                color: isActive ? "#e94560" : "#666"
+              }}>
+                <span>{m.mode_short || "M" + m.map_number}</span>
+                <span style={{marginLeft: "4px", color: isActive ? mapWinColor : "#555"}}>{m.home_score}-{m.away_score}</span>
+              </button>;
+            })}
+          </div>
+
+          {/* Per-map player stats */}
+          {activeMapPlayers && <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
+            {/* Active map info */}
+            {maps.filter(function(m) { return m.map_number === activeMap; }).map(function(m) {
+              var homeWonMap = m.winner_id === r.home.id;
+              return <div key={m.map_number} className="px-3 py-2 flex items-center justify-between" style={{background: "rgba(255,255,255,0.04)"}}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold" style={{color: "#888"}}>{m.mode_name}</span>
+                  <span className="text-xs" style={{color: "#555"}}>{m.map_name}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
+                  <span style={{fontSize: "9px", color: "#444"}}>-</span>
+                  <span className="text-sm font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
+                </div>
+              </div>;
+            })}
+
+            <div className="px-2 py-2">
+              <div className="flex items-center gap-2 mb-1 mt-1"><div className="w-1 h-3 rounded" style={{background: r.home.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.home.color}}>{r.home.short}</span></div>
+              <PlayerTable players={activeMapPlayers.home} color={r.home.color} showMode={true} />
+              <div className="flex items-center gap-2 mb-1 mt-3"><div className="w-1 h-3 rounded" style={{background: r.away.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.away.color}}>{r.away.short}</span></div>
+              <PlayerTable players={activeMapPlayers.away} color={r.away.color} showMode={true} />
+            </div>
+          </div>}
+
+          {activeMap === null && <div className="text-center py-3 text-xs" style={{color: "#555"}}>Tap a map above to see player stats</div>}
+        </div>}
+      </div>}
 
       {/* Team links */}
       <div className="flex justify-center gap-4 mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
@@ -1380,7 +1581,7 @@ function ScheduleTab(props) {
     </div>}
 
     {view === "results" && <div className="space-y-3">
-      {analysis.results.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} />; })}
+      {analysis.results.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} analysis={analysis} />; })}
       {analysis.results.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No completed matches yet</p></div>}
     </div>}
   </div>;
@@ -1798,7 +1999,11 @@ export default function App() {
         setLoading(true);
         setError(null);
         var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID), fetchResults()]);
-        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], results[6]));
+        // Second pass: fetch map scores for all completed matches
+        var completedMatches = results[6] || [];
+        var matchIds = completedMatches.map(function(m) { return m.id; }).filter(Boolean);
+        var resultMapData = matchIds.length > 0 ? await fetchResultMapScores(matchIds) : [];
+        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], completedMatches, resultMapData));
       } catch(e) {
         console.error(e);
         setError(e.message);

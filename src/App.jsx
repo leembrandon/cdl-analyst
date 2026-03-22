@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react"; 
-import { Analytics } from "@vercel/analytics/react";
 
 const CURRENT_EVENT_ID = 102;
 
+// Data fetched through /api/supabase proxy — credentials stay server-side
 async function mySupaFetch(table, query) {
   var url = "/api/supabase?table=" + encodeURIComponent(table) + "&query=" + encodeURIComponent(query || "select=*");
   var res = await fetch(url);
@@ -26,26 +26,6 @@ async function fetchTeams() {
 async function fetchMatches() {
   // match_view joins matches + teams + events (gives team names, event names)
    return mySupaFetch("match_view", "select=*&status=neq.completed&event_is_cdl=eq.true&order=scheduled_at.asc");
-}
-
-async function fetchResults() {
-  // All completed CDL matches — most recent first
-  return mySupaFetch("match_view", "select=*&status=eq.completed&event_is_cdl=eq.true&order=scheduled_at.desc");
-}
-
-async function fetchSeriesMaps(matchId) {
-  // Map-by-map breakdown for a completed series
-  return mySupaFetch("series_map_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
-}
-
-async function fetchMatchPlayerStats(matchId) {
-  // Per-player series totals for a specific match
-  return mySupaFetch("match_stats_view", "select=*&match_id=eq." + matchId);
-}
-
-async function fetchMatchMapStats(matchId) {
-  // Per-player per-map stats for a specific match
-  return mySupaFetch("map_stats_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
 }
 
 async function fetchRosters() {
@@ -81,12 +61,12 @@ async function fetchStandings(eventId) {
 
 async function fetchPlayerMatchStats(playerId) {
   // Fetch per-series stats from match_stats_view (for Maps 1-3 Kills + Series K/D)
-  return mySupaFetch("match_stats_view", "select=*&player_id=eq." + playerId + "&event_is_cdl=eq.true&order=scheduled_at.desc&limit=30");
+  return mySupaFetch("match_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc&limit=30");
 }
 
 async function fetchPlayerMapStats(playerId) {
   // Fetch per-map stats from map_stats_view (for Map 1/2/3 individual lines)
-  return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&event_is_cdl=eq.true&order=scheduled_at.desc,map_number.asc&limit=150");
+  return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc,map_number.asc&limit=150");
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────
@@ -122,49 +102,10 @@ function winPct(wins, losses) {
   return total > 0 ? ((wins || 0) / total) * 100 : 0;
 }
 
-// ─── PICKS STORAGE ───────────────────────────────────────────
-
-var PICKS_KEY = "barracks_picks";
-
-function loadPicks() {
-  try {
-    var raw = localStorage.getItem(PICKS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch(e) { return {}; }
-}
-
-function savePicks(picks) {
-  try { localStorage.setItem(PICKS_KEY, JSON.stringify(picks)); } catch(e) {}
-}
-
-function encodePicksParam(picks) {
-  // Format: matchId.teamId.score|matchId.teamId.score|...
-  var parts = [];
-  Object.keys(picks).forEach(function(matchId) {
-    var p = picks[matchId];
-    if (p && p.teamId && p.score) {
-      parts.push(matchId + "." + p.teamId + "." + p.score);
-    }
-  });
-  return parts.join("|");
-}
-
-function decodePicksParam(param) {
-  var picks = {};
-  if (!param) return picks;
-  param.split("|").forEach(function(part) {
-    var segs = part.split(".");
-    if (segs.length === 3) {
-      picks[segs[0]] = {teamId: Number(segs[1]), score: segs[2]};
-    }
-  });
-  return picks;
-}
-
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
-function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches) {
+function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings) {
   var teamLookup = {}, teamPlayers = {}, playerTeam = {}, playerStats = {}, playerRoles = {};
 
   rosters.forEach(function(t) {
@@ -250,31 +191,10 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     var t2Obj = {name: m.away_team_name || "", name_short: m.away_team_abbr || ""};
     var evObj = {id: m.event_id, name: m.event_name || "", name_short: m.event_short_name || ""};
 
-    matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored, home_team_id: m.home_team_id, away_team_id: m.away_team_id});
+    matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored});
   });
 
-  // Completed match results — match_view gives us team names and scores
-  var results = (completedMatches || []).map(function(m) {
-    if (!m.home_team_id || !m.away_team_id) return null;
-    var winnerId = m.winner_id;
-    var homeWon = winnerId === m.home_team_id;
-    var awayWon = winnerId === m.away_team_id;
-    return {
-      id: m.id,
-      datetime: m.scheduled_at,
-      bestOf: m.best_of,
-      homeScore: m.home_score || 0,
-      awayScore: m.away_score || 0,
-      winnerId: winnerId,
-      homeWon: homeWon,
-      awayWon: awayWon,
-      home: {id: m.home_team_id, name: m.home_team_name || "", short: m.home_team_abbr || "", color: m.home_team_color || "#888", logo: m.home_team_logo},
-      away: {id: m.away_team_id, name: m.away_team_name || "", short: m.away_team_abbr || "", color: m.away_team_color || "#888", logo: m.away_team_logo},
-      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""}
-    };
-  }).filter(Boolean);
-
-  return {power: power, matchups: matchups, results: results, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
+  return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
 }
 
 // ─── UI COMPONENTS ───────────────────────────────────────────
@@ -405,296 +325,6 @@ function MatchCard(props) {
         <TeamRosterBlock teamName={t1S} teamColor={mu.t1Stats && mu.t1Stats.team_color} roster={mu.t1Roster || []} />
         <div className="mt-3" />
         <TeamRosterBlock teamName={t2S} teamColor={mu.t2Stats && mu.t2Stats.team_color} roster={mu.t2Roster || []} />
-      </div>
-    </div>}
-  </div>;
-}
-
-function ResultCard(props) {
-  var r = props.result, onTeamClick = props.onTeamClick, analysis = props.analysis;
-  var [expanded, setExpanded] = useState(false);
-  var [maps, setMaps] = useState(null);
-  var [seriesStats, setSeriesStats] = useState(null);
-  var [mapPlayerStats, setMapPlayerStats] = useState(null);
-  var [detailLoading, setDetailLoading] = useState(false);
-  var [activeMap, setActiveMap] = useState(null);
-  var [sharing, setSharing] = useState(false);
-
-  var winnerShort = r.homeWon ? r.home.short : r.away.short;
-  var winnerColor = r.homeWon ? r.home.color : r.away.color;
-
-  // Build gamertag lookup from leaderboard + roster data
-  var gamertagMap = useMemo(function() {
-    var m = {};
-    if (analysis && analysis.playerStats) {
-      analysis.playerStats.forEach(function(p) {
-        m[p.player_id] = p.gamertag || p.player_tag || ("Player " + p.player_id);
-      });
-    }
-    if (analysis && analysis.teamPlayers) {
-      Object.keys(analysis.teamPlayers).forEach(function(tid) {
-        (analysis.teamPlayers[tid] || []).forEach(function(p) {
-          if (p.id && p.name && !m[p.id]) m[p.id] = p.name;
-        });
-      });
-    }
-    return m;
-  }, [analysis]);
-
-  var handleExpand = function() {
-    var next = !expanded;
-    setExpanded(next);
-    if (next && !seriesStats && !detailLoading) {
-      setDetailLoading(true);
-      Promise.all([
-        fetchSeriesMaps(r.id),
-        fetchMatchPlayerStats(r.id),
-        fetchMatchMapStats(r.id)
-      ]).then(function(res) {
-        setMaps(res[0] || []);
-        setSeriesStats(res[1] || []);
-        setMapPlayerStats(res[2] || []);
-      }).catch(function() {
-        setMaps([]); setSeriesStats([]); setMapPlayerStats([]);
-      }).finally(function() {
-        setDetailLoading(false);
-      });
-    }
-  };
-
-  // Aggregate series stats by team
-  var homeTeamSeries = null, awayTeamSeries = null;
-  if (seriesStats && seriesStats.length > 0) {
-    var hK = 0, hD = 0, hDmg = 0, hPlayers = [];
-    var aK = 0, aD = 0, aDmg = 0, aPlayers = [];
-    seriesStats.forEach(function(p) {
-      var isHome = p.team_id === r.home.id;
-      var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
-      var pKd = deaths > 0 ? kills / deaths : kills;
-      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0};
-      if (isHome) { hK += kills; hD += deaths; hDmg += damage; hPlayers.push(obj); }
-      else { aK += kills; aD += deaths; aDmg += damage; aPlayers.push(obj); }
-    });
-    hPlayers.sort(function(a, b) { return b.kills - a.kills; });
-    aPlayers.sort(function(a, b) { return b.kills - a.kills; });
-    homeTeamSeries = {kills: hK, deaths: hD, damage: hDmg, diff: hK - hD, kd: hD > 0 ? hK / hD : hK, players: hPlayers};
-    awayTeamSeries = {kills: aK, deaths: aD, damage: aDmg, diff: aK - aD, kd: aD > 0 ? aK / aD : aK, players: aPlayers};
-  }
-
-  // Get per-map player stats for the active map
-  var activeMapPlayers = null;
-  if (activeMap !== null && mapPlayerStats) {
-    var homeMp = [], awayMp = [];
-    mapPlayerStats.forEach(function(p) {
-      if (p.map_number !== activeMap) return;
-      var kills = p.kills || 0, deaths = p.deaths || 0, damage = p.damage || 0;
-      var pKd = deaths > 0 ? kills / deaths : kills;
-      var obj = {player_id: p.player_id, kills: kills, deaths: deaths, damage: damage, kd: pKd, assists: p.assists || 0};
-      if (p.team_id === r.home.id) homeMp.push(obj);
-      else awayMp.push(obj);
-    });
-    homeMp.sort(function(a, b) { return b.kills - a.kills; });
-    awayMp.sort(function(a, b) { return b.kills - a.kills; });
-    activeMapPlayers = {home: homeMp, away: awayMp};
-  }
-
-  // Determine which player list to show — activeMap overrides series
-  var showingMap = activeMap !== null && activeMapPlayers;
-  var displayHome = showingMap ? activeMapPlayers.home : (homeTeamSeries ? homeTeamSeries.players : []);
-  var displayAway = showingMap ? activeMapPlayers.away : (awayTeamSeries ? awayTeamSeries.players : []);
-
-  // Player stat row renderer
-  var renderPlayerRow = function(p, i, teamColor) {
-    var diff = p.kills - p.deaths;
-    return <div key={p.player_id} className="grid items-center py-1.5" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderBottom: "1px solid rgba(255,255,255,0.02)", background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"}}>
-      <span className="text-xs font-semibold truncate pr-1" style={{color: teamColor}}>{gamertagMap[p.player_id] || p.player_id}</span>
-      <span className="text-xs text-center font-bold text-white tabular-nums">{p.kills}</span>
-      <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{p.deaths}</span>
-      <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(p.kd)}}>{p.kd.toFixed(2)}</span>
-      <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(p.damage).toLocaleString()}</span>
-      <span className="text-xs text-center font-bold tabular-nums" style={{color: diff >= 0 ? "#52b788" : "#ff6b6b"}}>{diff >= 0 ? "+" : ""}{diff}</span>
-    </div>;
-  };
-
-  return <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-    {/* Collapsed — clean series score */}
-    <div className="p-4 cursor-pointer" onClick={handleExpand}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs uppercase tracking-wider opacity-40">{r.event.short || r.event.name} · Bo{r.bestOf}</span>
-        <span className="text-xs px-2 py-0.5 rounded-full" style={{background: "rgba(82,183,136,0.12)", color: "#52b788"}}>Final</span>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-8 rounded" style={{background: r.home.color}} />
-          <span className="font-bold text-xl" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.home.short}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl font-black tabular-nums" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.homeScore}</span>
-          <span className="text-xs opacity-30">-</span>
-          <span className="text-2xl font-black tabular-nums" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.awayScore}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-xl" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.away.short}</span>
-          <div className="w-2 h-8 rounded" style={{background: r.away.color}} />
-        </div>
-      </div>
-      <div className="flex justify-between mt-3 text-xs opacity-50">
-        <span>{utcToET(r.datetime)}</span>
-        <span style={{color: winnerColor}}>{winnerShort} wins</span>
-        <span>{expanded ? "\u25B2 collapse" : "\u25BC details"}</span>
-      </div>
-    </div>
-
-    {/* Expanded */}
-    {expanded && <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
-      {detailLoading && <div className="py-6 text-center"><div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading stats...</p></div>}
-
-      {homeTeamSeries && awayTeamSeries && <div>
-        {/* Map scores row — always visible in expanded */}
-        {maps && maps.length > 0 && <div className="rounded-lg overflow-hidden mb-3" style={{background: "rgba(255,255,255,0.02)"}}>
-          {/* Header row */}
-          <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "40px 1fr 1fr 48px 48px", background: "rgba(255,255,255,0.04)"}}>
-            <span style={{fontSize: "9px", color: "#555"}}>MAP</span>
-            <span style={{fontSize: "9px", color: "#555"}}>MODE</span>
-            <span style={{fontSize: "9px", color: "#555"}}>MAP</span>
-            <span style={{fontSize: "9px", color: r.home.color, textAlign: "center", fontWeight: 700}}>{r.home.short}</span>
-            <span style={{fontSize: "9px", color: r.away.color, textAlign: "center", fontWeight: 700}}>{r.away.short}</span>
-          </div>
-          {maps.map(function(m) {
-            var homeWonMap = m.winner_id === r.home.id;
-            return <div key={m.map_number} className="grid items-center py-1.5 px-2" style={{gridTemplateColumns: "40px 1fr 1fr 48px 48px", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
-              <span className="text-xs font-bold" style={{color: "#555"}}>{m.map_number}</span>
-              <span className="text-xs font-semibold" style={{color: "#888"}}>{m.mode_short || m.mode_name}</span>
-              <span className="text-xs" style={{color: "#666"}}>{m.map_name}</span>
-              <span className="text-sm font-bold text-center tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
-              <span className="text-sm font-bold text-center tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
-            </div>;
-          })}
-        </div>}
-
-        {/* View toggle — Series (default) vs individual maps */}
-        <div className="flex gap-1 mb-3 flex-wrap">
-          <button onClick={function(e) { e.stopPropagation(); setActiveMap(null); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-            background: activeMap === null ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
-            border: activeMap === null ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
-            color: activeMap === null ? "#e94560" : "#666"
-          }}>Series</button>
-          {maps && maps.map(function(m) {
-            var isActive = activeMap === m.map_number;
-            return <button key={m.map_number} onClick={function(e) { e.stopPropagation(); setActiveMap(m.map_number); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-              background: isActive ? "rgba(233,69,96,0.15)" : "rgba(255,255,255,0.04)",
-              border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.04)",
-              color: isActive ? "#e94560" : "#666"
-            }}>
-              <span>Map {m.map_number}</span>
-            </button>;
-          })}
-        </div>
-
-        {/* Active map header when viewing a specific map */}
-        {showingMap && maps && maps.filter(function(m) { return m.map_number === activeMap; }).map(function(m) {
-          var homeWonMap = m.winner_id === r.home.id;
-          return <div key={m.map_number} className="flex items-center justify-between px-2 py-2 mb-2 rounded-lg" style={{background: "rgba(255,255,255,0.03)"}}>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold" style={{color: "#888"}}>{m.mode_name}</span>
-              <span className="text-xs" style={{color: "#555"}}>{m.map_name}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
-              <span style={{fontSize: "9px", color: "#444"}}>-</span>
-              <span className="text-sm font-bold tabular-nums" style={{color: !homeWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
-            </div>
-          </div>;
-        })}
-
-        {/* Player stats table */}
-        <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
-          {/* Column headers */}
-          <div className="grid items-center py-1.5 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <span style={{fontSize: "9px", color: "#555"}}>PLAYER</span>
-            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K</span>
-            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>D</span>
-            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>K/D</span>
-            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>DMG</span>
-            <span style={{fontSize: "9px", color: "#555", textAlign: "center"}}>+/-</span>
-          </div>
-
-          {/* Home team */}
-          <div className="px-2">
-            <div className="flex items-center gap-2 mt-2 mb-1"><div className="w-1 h-3 rounded" style={{background: r.home.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.home.color}}>{r.home.short}</span></div>
-            {displayHome.map(function(p, i) { return renderPlayerRow(p, i, r.home.color); })}
-          </div>
-
-          {/* Away team */}
-          <div className="px-2">
-            <div className="flex items-center gap-2 mt-3 mb-1"><div className="w-1 h-3 rounded" style={{background: r.away.color}} /><span className="text-xs font-bold uppercase tracking-wider" style={{color: r.away.color}}>{r.away.short}</span></div>
-            {displayAway.map(function(p, i) { return renderPlayerRow(p, i, r.away.color); })}
-          </div>
-
-          {/* Series team totals footer — only show in series view */}
-          {!showingMap && <div style={{borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: "8px"}}>
-            <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px"}}>
-              <span className="text-xs font-bold" style={{color: r.home.color}}>{r.home.short} total</span>
-              <span className="text-xs text-center font-bold text-white tabular-nums">{homeTeamSeries.kills}</span>
-              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{homeTeamSeries.deaths}</span>
-              <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(homeTeamSeries.kd)}}>{homeTeamSeries.kd.toFixed(2)}</span>
-              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(homeTeamSeries.damage).toLocaleString()}</span>
-              <span className="text-xs text-center font-bold tabular-nums" style={{color: homeTeamSeries.diff >= 0 ? "#52b788" : "#ff6b6b"}}>{homeTeamSeries.diff >= 0 ? "+" : ""}{homeTeamSeries.diff}</span>
-            </div>
-            <div className="grid items-center py-2 px-2" style={{gridTemplateColumns: "1fr 40px 40px 50px 60px 40px", borderTop: "1px solid rgba(255,255,255,0.02)"}}>
-              <span className="text-xs font-bold" style={{color: r.away.color}}>{r.away.short} total</span>
-              <span className="text-xs text-center font-bold text-white tabular-nums">{awayTeamSeries.kills}</span>
-              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{awayTeamSeries.deaths}</span>
-              <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(awayTeamSeries.kd)}}>{awayTeamSeries.kd.toFixed(2)}</span>
-              <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{Math.round(awayTeamSeries.damage).toLocaleString()}</span>
-              <span className="text-xs text-center font-bold tabular-nums" style={{color: awayTeamSeries.diff >= 0 ? "#52b788" : "#ff6b6b"}}>{awayTeamSeries.diff >= 0 ? "+" : ""}{awayTeamSeries.diff}</span>
-            </div>
-          </div>}
-        </div>
-      </div>}
-
-      {/* Footer — share + team links */}
-      <div className="mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <div className="flex justify-center gap-4 mb-3">
-          <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.home.id); }} className="text-xs font-semibold hover:underline" style={{color: r.home.color}}>{r.home.name} →</button>
-          <button onClick={function(e) {
-            e.stopPropagation();
-            if (sharing || !homeTeamSeries) return;
-            setSharing(true);
-            var viewLabel = activeMap === null ? "Series" : "";
-            if (activeMap !== null && maps) {
-              maps.forEach(function(m) {
-                if (m.map_number === activeMap) viewLabel = "Map " + m.map_number + " — " + (m.mode_name || "") + " — " + (m.map_name || "");
-              });
-            }
-            var shareData = {
-              home: {short: r.home.short, color: r.home.color, id: r.home.id},
-              away: {short: r.away.short, color: r.away.color, id: r.away.id},
-              homeScore: r.homeScore, awayScore: r.awayScore,
-              homeWon: r.homeWon, awayWon: r.awayWon,
-              datetime: r.datetime,
-              eventName: r.event.short || r.event.name || "CDL 2026",
-              maps: maps || [],
-              homePlayers: displayHome.map(function(p) { return {name: gamertagMap[p.player_id] || p.player_id, kills: p.kills, deaths: p.deaths, damage: p.damage, kd: p.kd}; }),
-              awayPlayers: displayAway.map(function(p) { return {name: gamertagMap[p.player_id] || p.player_id, kills: p.kills, deaths: p.deaths, damage: p.damage, kd: p.kd}; }),
-              homeTeamTotals: activeMap === null ? homeTeamSeries : null,
-              awayTeamTotals: activeMap === null ? awayTeamSeries : null,
-              viewLabel: viewLabel
-            };
-            import("./shareRenderer.js").then(function(mod) {
-              return mod.shareResultImage(shareData);
-            }).catch(function(err) { console.error("Share error:", err); }).finally(function() { setSharing(false); });
-          }} disabled={sharing || !homeTeamSeries} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all" style={{
-            background: sharing ? "rgba(233,69,96,0.2)" : "rgba(233,69,96,0.1)",
-            color: sharing ? "#888" : "#e94560",
-            border: "1px solid rgba(233,69,96,0.2)",
-            opacity: !homeTeamSeries ? 0.3 : 1
-          }}>
-            {sharing ? <div className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
-            <span>{sharing ? "..." : "Share"}</span>
-          </button>
-          <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.away.id); }} className="text-xs font-semibold hover:underline" style={{color: r.away.color}}>{r.away.name} →</button>
-        </div>
       </div>
     </div>}
   </div>;
@@ -967,7 +597,7 @@ function PlayerCompare(props) {
   return <div className="space-y-4">
     <div className="flex gap-2 items-start">
       <div className="relative flex-1">
-        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p1 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
+        <input type="text" value={q1} onChange={function(e) { setQ1(e.target.value); setP1(null); setShow1(true); }} onFocus={function() { setShow1(true); }} onBlur={function() { setTimeout(function() { setShow1(false); }, 300); }} placeholder="Player 1..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p1 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
         {show1 && r1.length > 0 && !p1 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
           {r1.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick1, p); }} onTouchEnd={function(e) { handleItem(e, pick1, p); }}>
             <span className="text-white font-medium text-sm">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_abbr || p.team_short}</span>
@@ -976,7 +606,7 @@ function PlayerCompare(props) {
       </div>
       <div className="flex items-center justify-center pt-2"><div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{background: "rgba(233,69,96,0.15)", color: "#e94560", fontSize: "10px"}}>VS</div></div>
       <div className="relative flex-1">
-        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p2 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
+        <input type="text" value={q2} onChange={function(e) { setQ2(e.target.value); setP2(null); setShow2(true); }} onFocus={function() { setShow2(true); }} onBlur={function() { setTimeout(function() { setShow2(false); }, 300); }} placeholder="Player 2..." className="w-full p-2.5 sm:p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: p2 ? "1px solid rgba(82,183,136,0.4)" : "1px solid rgba(255,255,255,0.1)", fontSize: "15px"}} />
         {show2 && r2.length > 0 && !p2 && <div className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)"}}>
           {r2.map(function(p) { return <div key={p.player_id} className="flex items-center gap-2 p-3 cursor-pointer hover:bg-white/5 active:bg-white/10" onMouseDown={function(e) { handleItem(e, pick2, p); }} onTouchEnd={function(e) { handleItem(e, pick2, p); }}>
             <span className="text-white font-medium text-sm">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-40 ml-auto">{p.team_abbr || p.team_short}</span>
@@ -1163,6 +793,7 @@ var LINE_CATS = [
 
 function CDLLineCheck(props) {
   var player = props.player;
+  var analysis = props.analysis || {};
   var init = props.initialParams || {};
   var [cat, setCat] = useState(init.cat || "map1");
   var [threshold, setThreshold] = useState(init.threshold || "");
@@ -1198,7 +829,9 @@ function CDLLineCheck(props) {
   // Build the data points based on category
   var dataPoints = [];
   if (activeCat.source === "map") {
+    // Filter map_stats_view by mode name, grab kills per map
     var filtered = mapLogs.filter(function(m) { return m.mode_name === activeCat.mode; });
+    // Each row is one map occurrence — already sorted by date desc
     dataPoints = filtered.slice(0, range).map(function(m) {
       return {
         value: Number(m[activeCat.field]) || 0,
@@ -1214,7 +847,9 @@ function CDLLineCheck(props) {
       };
     });
   } else if (activeCat.source === "combo") {
+    // Maps 1-3 Kills: sum kills from map_stats_view where map_number <= 3, grouped per match
     var onlyFirst3 = mapLogs.filter(function(m) { return m.map_number <= 3; });
+    // Group by match_id and sum kills
     var matchGroups = {};
     var matchOrder = [];
     onlyFirst3.forEach(function(m) {
@@ -1227,6 +862,7 @@ function CDLLineCheck(props) {
       matchGroups[mid].deaths += (m.deaths || 0);
       matchGroups[mid].mapsInGroup += 1;
     });
+    // Only include matches that had all 3 maps
     dataPoints = matchOrder.filter(function(mid) {
       return matchGroups[mid].mapsInGroup >= 3;
     }).slice(0, range).map(function(mid) {
@@ -1245,6 +881,7 @@ function CDLLineCheck(props) {
       };
     });
   } else {
+    // Series-level: use match_stats_view (full series K/D)
     var sliced = seriesLogs.slice(0, range);
     dataPoints = sliced.map(function(m) {
       var val;
@@ -1277,6 +914,7 @@ function CDLLineCheck(props) {
   }) : [];
   var hitPct = hasThreshold && dataPoints.length > 0 ? (hits.length / dataPoints.length * 100) : 0;
 
+  // Average
   var avg = 0;
   if (dataPoints.length > 0) {
     var sum = 0;
@@ -1284,9 +922,50 @@ function CDLLineCheck(props) {
     avg = sum / dataPoints.length;
   }
 
+  // Map-specific splits — only for per-map categories (map1, map2, map3)
+  var mapSplits = [];
+  if (activeCat.source === "map" && dataPoints.length > 0) {
+    var mapGroups = {};
+    dataPoints.forEach(function(d) {
+      var mn = d.mapName || "Unknown";
+      if (!mapGroups[mn]) { mapGroups[mn] = {map: mn, values: [], kills: 0, deaths: 0, wins: 0, total: 0}; }
+      mapGroups[mn].values.push(d.value);
+      mapGroups[mn].kills += d.kills;
+      mapGroups[mn].deaths += d.deaths;
+      if (d.won) mapGroups[mn].wins++;
+      mapGroups[mn].total++;
+    });
+    Object.keys(mapGroups).forEach(function(mn) {
+      var g = mapGroups[mn];
+      var mSum = 0;
+      g.values.forEach(function(v) { mSum += v; });
+      var mAvg = mSum / g.values.length;
+      var mKd = g.deaths > 0 ? (g.kills / g.deaths) : g.kills;
+      var mHits = 0;
+      if (hasThreshold) {
+        g.values.forEach(function(v) {
+          if (direction === "over" ? v >= threshNum : v < threshNum) mHits++;
+        });
+      }
+      mapSplits.push({
+        map: mn,
+        games: g.total,
+        avg: mAvg,
+        kd: mKd,
+        hitRate: hasThreshold ? (mHits / g.total * 100) : 0,
+        hits: mHits,
+        wins: g.wins,
+        best: Math.max.apply(null, g.values),
+        worst: Math.min.apply(null, g.values)
+      });
+    });
+    mapSplits.sort(function(a, b) { return b.avg - a.avg; });
+  }
+
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
 
   return <div>
+    {/* Category pills */}
     <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {LINE_CATS.map(function(c) {
@@ -1299,6 +978,8 @@ function CDLLineCheck(props) {
           </button>;
         })}
       </div>
+
+      {/* Controls row */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex rounded-lg overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.08)"}}>
           <button onClick={function() { setDirection("over"); }} className="px-3 py-2 text-xs font-bold transition-all" style={{background: direction === "over" ? "rgba(82,183,136,0.2)" : "transparent", color: direction === "over" ? "#52b788" : "#666"}}>Over</button>
@@ -1317,11 +998,13 @@ function CDLLineCheck(props) {
       </div>
     </div>
 
+    {/* Result card */}
     {hasThreshold && dataPoints.length > 0 && <div>
       <div className="rounded-xl p-4 mb-3" style={{
         background: hitPct >= 60 ? "rgba(82,183,136,0.06)" : hitPct >= 40 ? "rgba(255,209,102,0.06)" : "rgba(255,107,107,0.06)",
         border: "1px solid " + (hitPct >= 60 ? "rgba(82,183,136,0.15)" : hitPct >= 40 ? "rgba(255,209,102,0.15)" : "rgba(255,107,107,0.15)")
       }}>
+        {/* Player header */}
         <div className="flex items-center gap-3 mb-3 pb-3" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-white truncate">{player.gamertag}</span><RoleBadge role={player.role} /></div>
@@ -1333,6 +1016,8 @@ function CDLLineCheck(props) {
             <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>SnD KPR</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(player, "snd_kills_per_round").toFixed(2)}</div></div>
           </div>
         </div>
+
+        {/* Hit rate */}
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-sm font-bold uppercase" style={{color: hitColor}}>{direction} {isKd ? threshNum.toFixed(2) : threshNum} {activeCat.label}</div>
@@ -1343,6 +1028,8 @@ function CDLLineCheck(props) {
             <div className="text-sm font-bold" style={{color: hitColor}}>{hitPct.toFixed(0)}%</div>
           </div>
         </div>
+
+        {/* Per-game bubbles */}
         <div className="flex gap-1.5 flex-wrap mb-2">
           {dataPoints.map(function(d, i) {
             var hit = direction === "over" ? d.value >= threshNum : d.value < threshNum;
@@ -1357,11 +1044,15 @@ function CDLLineCheck(props) {
             </div>;
           })}
         </div>
+
+        {/* Footer */}
         <div className="flex items-center justify-between mt-2 pt-2" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
           <span style={{fontSize: "10px", color: "#333", fontWeight: 700}}>BARRACKS</span>
           <span style={{fontSize: "10px", color: "#444"}}>Avg: {isKd ? avg.toFixed(2) : avg.toFixed(1)} / {activeCat.source === "map" ? "map" : "series"}</span>
         </div>
       </div>
+
+      {/* Share / Copy link */}
       <div className="flex justify-center gap-2 mb-3">
         <button onClick={function() {
           if (sharing) return;
@@ -1408,6 +1099,47 @@ function CDLLineCheck(props) {
       </div>
     </div>}
 
+    {/* ── MAP SPLITS ────────────────────────────────────────── */}
+    {mapSplits.length > 1 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{color: "#555"}}>By map</div>
+
+      {/* Header */}
+      <div className="grid items-center mb-1 px-1" style={{gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""), fontSize: "9px", color: "#444", textTransform: "uppercase", letterSpacing: "0.3px"}}>
+        <span>Map</span>
+        <span className="text-center">#</span>
+        <span className="text-center">Avg</span>
+        <span className="text-center">K/D</span>
+        {hasThreshold && <span className="text-center">Hit</span>}
+      </div>
+
+      {mapSplits.map(function(ms) {
+        var isAboveAvg = ms.avg >= avg;
+        var hitGood = ms.hitRate >= 60;
+        var hitBad = ms.hitRate < 40;
+        return <div key={ms.map} className="grid items-center py-1.5 px-1" style={{
+          gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""),
+          borderBottom: "1px solid rgba(255,255,255,0.03)"
+        }}>
+          <span className="text-xs font-medium text-white truncate">{ms.map}</span>
+          <span className="text-xs text-center" style={{color: "#555"}}>{ms.games}</span>
+          <span className="text-xs text-center font-bold" style={{color: isAboveAvg ? "#52b788" : "#ff6b6b"}}>{isKd ? ms.avg.toFixed(2) : ms.avg.toFixed(1)}</span>
+          <span className="text-xs text-center font-bold" style={{color: kdColor(ms.kd)}}>{ms.kd.toFixed(2)}</span>
+          {hasThreshold && <span className="text-xs text-center font-bold px-1.5 py-0.5 rounded" style={{
+            background: hitGood ? "rgba(82,183,136,0.12)" : hitBad ? "rgba(255,107,107,0.12)" : "rgba(255,209,102,0.12)",
+            color: hitGood ? "#52b788" : hitBad ? "#ff6b6b" : "#ffd166",
+            fontSize: "10px"
+          }}>{ms.hits}/{ms.games}</span>}
+        </div>;
+      })}
+
+      {/* Overall avg reference */}
+      <div className="mt-2 pt-2 flex items-center justify-between" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <span style={{fontSize: "9px", color: "#444"}}>Overall avg</span>
+        <span className="text-xs font-bold" style={{color: "#888"}}>{isKd ? avg.toFixed(2) : avg.toFixed(1)}</span>
+      </div>
+    </div>}
+
+    {/* Game log table */}
     {dataPoints.length > 0 && <div className="rounded-xl overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="px-2 py-1.5 grid items-center" style={{
         gridTemplateColumns: activeCat.source === "map" ? "42px 1fr 36px 36px 42px 36px" : "42px 1fr 36px 36px 42px 36px",
@@ -1445,9 +1177,8 @@ function CDLLinesTab(props) {
   var [query, setQuery] = useState("");
   var [selectedPlayer, setSelectedPlayer] = useState(null);
   var [initialLineParams, setInitialLineParams] = useState(null);
-  var [switchQuery, setSwitchQuery] = useState("");
-  var [switchOpen, setSwitchOpen] = useState(false);
 
+  // Read ?line= URL parameter on mount
   useEffect(function() {
     try {
       var params = new URLSearchParams(window.location.search);
@@ -1516,33 +1247,7 @@ function CDLLinesTab(props) {
         </div>
       </div>}
     </div> : <div>
-      <button onClick={function() { setSelectedPlayer(null); setSwitchQuery(""); setSwitchOpen(false); }} className="text-xs font-semibold mb-3 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Back</button>
-
-      <div className="relative mb-3">
-        <div style={{position: "relative"}}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" value={switchQuery} onChange={function(e) { setSwitchQuery(e.target.value); setSwitchOpen(true); }} onFocus={function() { setSwitchOpen(true); }} onBlur={function() { setTimeout(function() { setSwitchOpen(false); }, 200); }} placeholder="Switch to another player..." className="w-full py-2.5 pr-3 rounded-xl text-white placeholder-gray-600 outline-none" style={{background: "rgba(255,255,255,0.04)", border: switchOpen && switchQuery.length >= 2 ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.07)", fontSize: "16px", paddingLeft: "34px"}} />
-        </div>
-        {switchOpen && switchQuery.length >= 2 && <div className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-50" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxHeight: "300px", overflowY: "auto"}}>
-          {(function() {
-            var sq = switchQuery.toLowerCase();
-            var switchResults = analysis.playerStats.filter(function(p) {
-              return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
-            }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 8);
-            if (switchResults.length === 0) return <div className="p-4 text-center text-xs" style={{color: "#555"}}>No players found</div>;
-            return switchResults.map(function(p) {
-              var isActive = p.player_id === selectedPlayer.player_id;
-              return <div key={p.player_id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors" style={{background: isActive ? "rgba(233,69,96,0.08)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.03)"}} onClick={function() { setSelectedPlayer(p); setSwitchOpen(false); setSwitchQuery(""); setInitialLineParams(null); }}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span>{isActive && <span style={{fontSize: "9px", color: "#e94560", fontWeight: 700}}>VIEWING</span>}</div>
-                  <div className="flex items-center gap-1"><RoleBadge role={p.role} /><span style={{fontSize: "10px", color: "#555"}}>{p.team_abbr || ""}</span></div>
-                </div>
-                <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
-              </div>;
-            });
-          })()}
-        </div>}
-      </div>
+      <button onClick={function() { setSelectedPlayer(null); }} className="text-xs font-semibold mb-4 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Pick different player</button>
 
       <div className="flex items-center gap-3 p-3 rounded-xl mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
         <div className="flex-1 min-w-0">
@@ -1556,477 +1261,18 @@ function CDLLinesTab(props) {
         </div>
       </div>
 
-      <CDLLineCheck key={selectedPlayer.player_id} player={selectedPlayer} initialParams={initialLineParams} />
+      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} analysis={analysis} />
     </div>}
   </div>;
 }
 
-// ─── SCHEDULE TAB ───────────────────────────────────────────
-
-function ScheduleTab(props) {
-  var analysis = props.analysis, openTeam = props.openTeam;
-  var [view, setView] = useState("upcoming");
-  var [selectedEventId, setSelectedEventId] = useState(null);
-
-  // Extract unique events from completed results
-  var resultEvents = useMemo(function() {
-    var seen = {};
-    var list = [];
-    (analysis.results || []).forEach(function(r) {
-      var ev = r.event;
-      if (ev && ev.id && !seen[ev.id]) {
-        seen[ev.id] = true;
-        list.push({id: ev.id, name: ev.name || "", short: ev.short || ""});
-      }
-    });
-    return list;
-  }, [analysis.results]);
-
-  // Default to the first event (most recent matches come first, so first event = current)
-  var activeEventId = selectedEventId || (resultEvents.length > 0 ? resultEvents[0].id : null);
-
-  // Filter results by selected event
-  var filteredResults = activeEventId ? (analysis.results || []).filter(function(r) {
-    return r.event && r.event.id === activeEventId;
-  }) : (analysis.results || []);
-
-  return <div className="space-y-3">
-    <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
-
-    {/* Upcoming / Results toggle */}
-    <div className="flex rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <button onClick={function() { setView("upcoming"); }} className="flex-1 py-2.5 text-sm font-bold transition-all" style={{
-        background: view === "upcoming" ? "#e94560" : "transparent",
-        color: view === "upcoming" ? "#fff" : "#555"
-      }}>Upcoming</button>
-      <button onClick={function() { setView("results"); }} className="flex-1 py-2.5 text-sm font-bold transition-all" style={{
-        background: view === "results" ? "#e94560" : "transparent",
-        color: view === "results" ? "#fff" : "#555"
-      }}>Results</button>
-    </div>
-
-    {view === "upcoming" && <div className="space-y-3">
-      {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
-      {analysis.matchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches with known teams</p></div>}
-    </div>}
-
-    {view === "results" && <div className="space-y-3">
-      {/* Event selector */}
-      {resultEvents.length > 1 && <div className="flex flex-wrap gap-1.5">
-        {resultEvents.map(function(ev) {
-          var isActive = ev.id === activeEventId;
-          return <button key={ev.id} onClick={function() { setSelectedEventId(ev.id); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-            background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
-            color: isActive ? "#e94560" : "#666",
-            border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
-          }}>{ev.short || ev.name}</button>;
-        })}
-      </div>}
-
-      {filteredResults.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} analysis={analysis} />; })}
-      {filteredResults.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No completed matches for this event</p></div>}
-    </div>}
-  </div>;
-}
-
-// ─── PICKS TAB ───────────────────────────────────────────────
-
-var SCORE_OPTIONS = ["3-0", "3-1", "3-2"];
-
-function PickCard(props) {
-  var mu = props.mu, pick = props.pick, onPick = props.onPick;
-  var t1S = (mu.t1 && mu.t1.name_short) || "?";
-  var t2S = (mu.t2 && mu.t2.name_short) || "?";
-  var t1Color = (mu.t1Stats && mu.t1Stats.team_color) || "#888";
-  var t2Color = (mu.t2Stats && mu.t2Stats.team_color) || "#888";
-  var t1Id = mu.home_team_id;
-  var t2Id = mu.away_team_id;
-  var pickedTeam = pick ? pick.teamId : null;
-  var pickedScore = pick ? pick.score : null;
-  var isT1Picked = pickedTeam === t1Id;
-  var isT2Picked = pickedTeam === t2Id;
-  var hasPick = pickedTeam && pickedScore;
-
-  var handleTeamPick = function(teamId) {
-    if (pickedTeam === teamId) {
-      // Deselect team — clear pick
-      onPick(mu.id, null);
-    } else {
-      // Select team, keep score if already set
-      onPick(mu.id, {teamId: teamId, score: pickedScore || null});
-    }
-  };
-
-  var handleScorePick = function(score) {
-    if (!pickedTeam) return;
-    if (pickedScore === score) {
-      // Deselect score
-      onPick(mu.id, {teamId: pickedTeam, score: null});
-    } else {
-      onPick(mu.id, {teamId: pickedTeam, score: score});
-    }
-  };
-
-  // Derive the losing team's map wins from the score
-  var loserWins = "";
-  if (hasPick) {
-    var parts = pickedScore.split("-");
-    loserWins = parts[1] || "0";
-  }
-
-  return <div className="rounded-xl overflow-hidden" style={{
-    background: hasPick ? "rgba(82,183,136,0.04)" : "rgba(255,255,255,0.03)",
-    border: hasPick ? "1px solid rgba(82,183,136,0.15)" : "1px solid rgba(255,255,255,0.06)",
-    transition: "all 0.2s"
-  }}>
-    {/* Match info header */}
-    <div className="px-4 pt-3 pb-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs uppercase tracking-wider opacity-40">{(mu.event && mu.event.name_short) || ""} · Bo{mu.bestOf}</span>
-        <span className="text-xs opacity-40">{utcToET(mu.datetime)}</span>
-      </div>
-    </div>
-
-    {/* Team selection */}
-    <div className="px-4 pb-3">
-      <div className="flex items-center gap-3">
-        {/* Team 1 button */}
-        <button onClick={function() { handleTeamPick(t1Id); }} className="flex-1 flex items-center gap-2 p-3 rounded-xl transition-all" style={{
-          background: isT1Picked ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-          border: isT1Picked ? "2px solid " + t1Color : "2px solid rgba(255,255,255,0.06)",
-          cursor: "pointer"
-        }}>
-          <div className="w-1.5 h-8 rounded-full flex-shrink-0" style={{background: t1Color}} />
-          <span className="font-bold text-white text-lg">{t1S}</span>
-          {isT1Picked && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52b788" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="ml-auto flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>}
-        </button>
-
-        <div className="flex-shrink-0">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{background: "rgba(255,255,255,0.04)"}}>
-            <span style={{fontSize: "10px", fontWeight: 800, color: "#555"}}>VS</span>
-          </div>
-        </div>
-
-        {/* Team 2 button */}
-        <button onClick={function() { handleTeamPick(t2Id); }} className="flex-1 flex items-center gap-2 p-3 rounded-xl transition-all" style={{
-          background: isT2Picked ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-          border: isT2Picked ? "2px solid " + t2Color : "2px solid rgba(255,255,255,0.06)",
-          cursor: "pointer"
-        }}>
-          {isT2Picked && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52b788" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>}
-          <span className="font-bold text-white text-lg">{t2S}</span>
-          <div className="w-1.5 h-8 rounded-full flex-shrink-0 ml-auto" style={{background: t2Color}} />
-        </button>
-      </div>
-
-      {/* Score selection — only show when a team is picked */}
-      {pickedTeam && <div className="mt-3">
-        <div className="flex items-center gap-2">
-          <span style={{fontSize: "10px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px"}}>Predicted score</span>
-          <div className="flex gap-1.5 flex-1 justify-end">
-            {SCORE_OPTIONS.map(function(score) {
-              var isActive = pickedScore === score;
-              var winnerAbbr = isT1Picked ? t1S : t2S;
-              var loserAbbr = isT1Picked ? t2S : t1S;
-              var parts = score.split("-");
-              return <button key={score} onClick={function() { handleScorePick(score); }} className="px-3 py-2 rounded-lg text-xs font-bold transition-all" style={{
-                background: isActive ? "rgba(82,183,136,0.2)" : "rgba(255,255,255,0.04)",
-                border: isActive ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                color: isActive ? "#52b788" : "#666"
-              }}>
-                {score}
-              </button>;
-            })}
-          </div>
-        </div>
-      </div>}
-
-      {/* Pick summary */}
-      {hasPick && <div className="mt-3 pt-3 flex items-center justify-between" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <div className="flex items-center gap-2">
-          <div className="w-1 h-4 rounded" style={{background: isT1Picked ? t1Color : t2Color}} />
-          <span className="text-xs font-bold" style={{color: "#52b788"}}>
-            {isT1Picked ? t1S : t2S} wins {pickedScore}
-          </span>
-        </div>
-        <button onClick={function() { onPick(mu.id, null); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Clear</button>
-      </div>}
-    </div>
-  </div>;
-}
-
-function SharedPicksBanner(props) {
-  var sharedPicks = props.sharedPicks, matchups = props.matchups, onAdopt = props.onAdopt, onDismiss = props.onDismiss;
-
-  // Build a summary of shared picks
-  var pickSummaries = [];
-  Object.keys(sharedPicks).forEach(function(mid) {
-    var p = sharedPicks[mid];
-    if (!p || !p.teamId || !p.score) return;
-    var mu = matchups.find(function(m) { return String(m.id) === String(mid); });
-    if (!mu) return;
-    var isT1 = p.teamId === mu.home_team_id;
-    pickSummaries.push({
-      winnerAbbr: isT1 ? (mu.t1 && mu.t1.name_short) : (mu.t2 && mu.t2.name_short),
-      winnerColor: isT1 ? ((mu.t1Stats && mu.t1Stats.team_color) || "#888") : ((mu.t2Stats && mu.t2Stats.team_color) || "#888"),
-      loserAbbr: isT1 ? (mu.t2 && mu.t2.name_short) : (mu.t1 && mu.t1.name_short),
-      score: p.score
-    });
-  });
-
-  if (pickSummaries.length === 0) return null;
-
-  return <div className="rounded-xl mb-4 overflow-hidden" style={{background: "rgba(83,168,182,0.06)", border: "1px solid rgba(83,168,182,0.15)"}}>
-    <div className="px-4 pt-3 pb-2">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#53a8b6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-          <span className="text-sm font-bold" style={{color: "#53a8b6"}}>Someone shared their picks</span>
-        </div>
-        <button onClick={onDismiss} className="text-xs opacity-40 hover:opacity-80 px-2 py-1" style={{color: "#888"}}>{"\u2715"}</button>
-      </div>
-    </div>
-
-    {/* Compact pick list */}
-    <div className="px-4 pb-2">
-      <div className="flex flex-wrap gap-2">
-        {pickSummaries.map(function(ps, i) {
-          return <div key={i} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{background: "rgba(255,255,255,0.04)"}}>
-            <div className="w-1 h-4 rounded-full" style={{background: ps.winnerColor}} />
-            <span className="text-xs font-bold text-white">{ps.winnerAbbr}</span>
-            <span className="text-xs font-bold" style={{color: "#52b788"}}>{ps.score}</span>
-            <span className="text-xs" style={{color: "#555"}}>{ps.loserAbbr}</span>
-          </div>;
-        })}
-      </div>
-    </div>
-
-    {/* Action buttons */}
-    <div className="px-4 pb-3 pt-2 flex gap-2" style={{borderTop: "1px solid rgba(83,168,182,0.1)"}}>
-      <button onClick={onAdopt} className="flex-1 py-2 rounded-xl text-xs font-bold" style={{background: "rgba(83,168,182,0.15)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>Use as starting point</button>
-      <button onClick={onDismiss} className="flex-1 py-2 rounded-xl text-xs font-bold" style={{background: "rgba(255,255,255,0.04)", color: "#888", border: "1px solid rgba(255,255,255,0.06)"}}>Start fresh</button>
-    </div>
-  </div>;
-}
-
-function PicksTab(props) {
-  var analysis = props.analysis;
-
-  // Separate shared picks from user's own picks
-  var [sharedPicks] = useState(function() {
-    try {
-      var params = new URLSearchParams(window.location.search);
-      var shared = params.get("picks");
-      if (shared) return decodePicksParam(shared);
-    } catch(e) {}
-    return null;
-  });
-  var [showSharedBanner, setShowSharedBanner] = useState(!!sharedPicks);
-  var [picks, setPicks] = useState(function() { return loadPicks(); });
-  var [linkCopied, setLinkCopied] = useState(false);
-  var [sharing, setSharing] = useState(false);
-  var [selectedEventId, setSelectedEventId] = useState(null);
-
-  var matchups = analysis.matchups;
-
-  // Extract unique events from matchups
-  var events = useMemo(function() {
-    var seen = {};
-    var list = [];
-    matchups.forEach(function(mu) {
-      var ev = mu.event;
-      if (ev && ev.id && !seen[ev.id]) {
-        seen[ev.id] = true;
-        list.push({id: ev.id, name: ev.name || "", short: ev.name_short || ""});
-      }
-    });
-    return list;
-  }, [matchups]);
-
-  // Default to the first event if not selected
-  var activeEventId = selectedEventId || (events.length > 0 ? events[0].id : null);
-  var activeEvent = events.find(function(e) { return e.id === activeEventId; }) || events[0] || null;
-  var activeEventName = activeEvent ? (activeEvent.name || activeEvent.short || "Picks") : "Picks";
-  var activeEventShort = activeEvent ? (activeEvent.short || activeEvent.name || "Picks") : "Picks";
-
-  // Filter matchups by selected event
-  var filteredMatchups = activeEventId ? matchups.filter(function(mu) {
-    return mu.event && mu.event.id === activeEventId;
-  }) : matchups;
-
-  var handlePick = function(matchId, pick) {
-    setPicks(function(prev) {
-      var next = Object.assign({}, prev);
-      if (!pick || (!pick.teamId)) {
-        delete next[matchId];
-      } else {
-        next[matchId] = pick;
-      }
-      savePicks(next);
-      return next;
-    });
-  };
-
-  // Count picks only for the filtered matches
-  var filteredMatchIds = {};
-  filteredMatchups.forEach(function(mu) { filteredMatchIds[mu.id] = true; });
-  var completedPicks = Object.keys(picks).filter(function(mid) {
-    var p = picks[mid];
-    return p && p.teamId && p.score && filteredMatchIds[mid];
-  });
-  var totalMatches = filteredMatchups.length;
-  var pickedCount = completedPicks.length;
-
-  var handleClearAll = function() {
-    setPicks(function(prev) {
-      var next = Object.assign({}, prev);
-      filteredMatchups.forEach(function(mu) {
-        delete next[mu.id];
-      });
-      savePicks(next);
-      return next;
-    });
-  };
-
-  var handleAdoptShared = function() {
-    if (!sharedPicks) return;
-    setPicks(function(prev) {
-      var next = Object.assign({}, prev, sharedPicks);
-      savePicks(next);
-      return next;
-    });
-    setShowSharedBanner(false);
-    window.history.replaceState(null, "", window.location.pathname);
-  };
-
-  var handleDismissShared = function() {
-    setShowSharedBanner(false);
-    window.history.replaceState(null, "", window.location.pathname);
-  };
-
-  var handleCopyLink = function() {
-    var eventPicks = {};
-    completedPicks.forEach(function(mid) { eventPicks[mid] = picks[mid]; });
-    var encoded = encodePicksParam(eventPicks);
-    if (!encoded) return;
-    var url = window.location.origin + window.location.pathname + "?picks=" + encoded;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function() {
-        setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000);
-      }).catch(function() { prompt("Copy this link:", url); });
-    } else {
-      prompt("Copy this link:", url);
-    }
-  };
-
-  var handleShareImage = function() {
-    if (sharing || pickedCount === 0) return;
-    setSharing(true);
-    var pickData = completedPicks.map(function(mid) {
-      var p = picks[mid];
-      var mu = filteredMatchups.find(function(m) { return String(m.id) === String(mid); });
-      if (!mu) return null;
-      var isT1 = p.teamId === mu.home_team_id;
-      return {
-        winnerAbbr: isT1 ? (mu.t1 && mu.t1.name_short) : (mu.t2 && mu.t2.name_short),
-        winnerColor: isT1 ? ((mu.t1Stats && mu.t1Stats.team_color) || "#888") : ((mu.t2Stats && mu.t2Stats.team_color) || "#888"),
-        loserAbbr: isT1 ? (mu.t2 && mu.t2.name_short) : (mu.t1 && mu.t1.name_short),
-        loserColor: isT1 ? ((mu.t2Stats && mu.t2Stats.team_color) || "#888") : ((mu.t1Stats && mu.t1Stats.team_color) || "#888"),
-        score: p.score,
-        eventShort: (mu.event && mu.event.name_short) || "",
-        datetime: mu.datetime
-      };
-    }).filter(Boolean);
-
-    var eventPicks = {};
-    completedPicks.forEach(function(mid) { eventPicks[mid] = picks[mid]; });
-    var encoded = encodePicksParam(eventPicks);
-    var shareUrl = window.location.origin + window.location.pathname + "?picks=" + encoded;
-
-    import("./shareRenderer.js").then(function(mod) {
-      return mod.sharePicksImage(pickData, shareUrl, activeEventName);
-    }).then(function() { setSharing(false); }).catch(function(e) { console.error(e); setSharing(false); });
-  };
-
-  return <div>
-    {/* Header with event name */}
-    <div className="mb-4">
-      <h2 className="text-lg font-bold text-white mb-1">{activeEventName}</h2>
-      <p className="text-xs" style={{color: "#555"}}>Pick who you think wins each series and the score</p>
-    </div>
-
-    {/* Shared picks banner */}
-    {showSharedBanner && sharedPicks && <SharedPicksBanner sharedPicks={sharedPicks} matchups={matchups} onAdopt={handleAdoptShared} onDismiss={handleDismissShared} />}
-
-    {/* Event selector — only show if there are multiple events */}
-    {events.length > 1 && <div className="flex flex-wrap gap-1.5 mb-4">
-      {events.map(function(ev) {
-        var isActive = ev.id === activeEventId;
-        return <button key={ev.id} onClick={function() { setSelectedEventId(ev.id); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-          background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
-          color: isActive ? "#e94560" : "#666",
-          border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
-        }}>{ev.short || ev.name}</button>;
-      })}
-    </div>}
-
-    {/* Summary card */}
-    <div className="rounded-xl p-4 mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="text-2xl font-black text-white">{pickedCount}<span style={{fontSize: "14px", fontWeight: 400, color: "#555"}}>/{totalMatches}</span></div>
-          <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>Matches picked</div>
-        </div>
-        {/* Progress bar */}
-        <div className="flex-1 mx-4">
-          <div className="h-2 rounded-full overflow-hidden" style={{background: "rgba(255,255,255,0.06)"}}>
-            <div className="h-full rounded-full transition-all" style={{
-              width: (totalMatches > 0 ? (pickedCount / totalMatches * 100) : 0) + "%",
-              background: pickedCount === totalMatches && totalMatches > 0 ? "#52b788" : "#e94560"
-            }} />
-          </div>
-        </div>
-        {pickedCount === totalMatches && totalMatches > 0 && <span className="text-xs font-bold px-2 py-1 rounded-lg" style={{background: "rgba(82,183,136,0.15)", color: "#52b788"}}>All in!</span>}
-      </div>
-
-      {/* Share buttons */}
-      {pickedCount > 0 && <div className="flex gap-2">
-        <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1}}>
-          {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
-          <span>{sharing ? "Generating..." : "Share picks"}</span>
-        </button>
-        <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0"}}>
-          {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
-          <span>{linkCopied ? "Copied!" : "Copy link"}</span>
-        </button>
-      </div>}
-
-      {/* Clear all */}
-      {pickedCount > 0 && <div className="mt-3 pt-3 flex justify-end" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <button onClick={handleClearAll} className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-100" style={{background: "rgba(255,107,107,0.08)", color: "#ff6b6b", border: "1px solid rgba(255,107,107,0.15)", opacity: 0.7}}>Clear all picks</button>
-      </div>}
-    </div>
-
-    {/* Match pick cards */}
-    <div className="space-y-3">
-      {filteredMatchups.map(function(mu) {
-        return <PickCard key={mu.id} mu={mu} pick={picks[mu.id] || null} onPick={handlePick} />;
-      })}
-      {filteredMatchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches for this event</p></div>}
-    </div>
-  </div>;
-}
-
-// ─── MAIN APP ────────────────────────────────────────────────
-
-var TABS = ["Schedule", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
+var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
-  var picksParam = urlParams.get("picks");
-  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : picksParam ? "Picks" : "Schedule");
+  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : "Schedule");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
@@ -2040,8 +1286,8 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
-        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID), fetchResults()]);
-        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], results[6]));
+        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID)]);
+        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]));
       } catch(e) {
         console.error(e);
         setError(e.message);
@@ -2051,12 +1297,6 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(function() {
-  if (window.location.search.includes("notrack")) {
-    localStorage.setItem("barracks_no_track", "true");
-  }
-}, []);
-
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center space-y-3"><div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-sm" style={{color: "#888"}}>Loading CDL data...</p></div></div>;
 
   if (error) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center p-6 rounded-xl max-w-md" style={{background: "rgba(233,69,96,0.1)", border: "1px solid rgba(233,69,96,0.3)"}}><p className="text-lg font-bold mb-2" style={{color: "#e94560"}}>Failed to load</p><p className="text-sm opacity-60">{error}</p><button onClick={function() { window.location.reload(); }} className="mt-4 px-4 py-2 rounded-lg text-sm font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button></div></div>;
@@ -2064,10 +1304,6 @@ export default function App() {
   var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major";
 
   return <div className="min-h-screen" style={{background: "#0d0d1a", color: "#c8c8d0"}}>
-    <Analytics beforeSend={function(event) {
-  if (localStorage.getItem("barracks_no_track")) return null;
-  return event;
-}} />
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>
@@ -2075,8 +1311,12 @@ export default function App() {
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
-      {tab === "Schedule" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
-      {tab === "Picks" && <PicksTab analysis={analysis} />}
+      {tab === "Schedule" && <div className="space-y-3">
+        <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
+        <h2 className="text-lg font-bold text-white mb-4">Upcoming matches</h2>
+        {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
+        {analysis.matchups.length === 0 && <p className="opacity-40">No upcoming matches with known teams</p>}
+      </div>}
       {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
       {tab === "Teams" && <div>
         {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} /> : <div>

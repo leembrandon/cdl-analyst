@@ -672,6 +672,7 @@ function ResultCard(props) {
               away: {short: r.away.short, color: r.away.color, id: r.away.id},
               homeScore: r.homeScore, awayScore: r.awayScore,
               homeWon: r.homeWon, awayWon: r.awayWon,
+              datetime: r.datetime,
               eventName: r.event.short || r.event.name || "CDL 2026",
               maps: maps || [],
               homePlayers: displayHome.map(function(p) { return {name: gamertagMap[p.player_id] || p.player_id, kills: p.kills, deaths: p.deaths, damage: p.damage, kd: p.kd}; }),

@@ -793,7 +793,6 @@ var LINE_CATS = [
 
 function CDLLineCheck(props) {
   var player = props.player;
-  var analysis = props.analysis || {};
   var init = props.initialParams || {};
   var [cat, setCat] = useState(init.cat || "map1");
   var [threshold, setThreshold] = useState(init.threshold || "");
@@ -920,46 +919,6 @@ function CDLLineCheck(props) {
     var sum = 0;
     dataPoints.forEach(function(d) { sum += d.value; });
     avg = sum / dataPoints.length;
-  }
-
-  // Map-specific splits — only for per-map categories (map1, map2, map3)
-  var mapSplits = [];
-  if (activeCat.source === "map" && dataPoints.length > 0) {
-    var mapGroups = {};
-    dataPoints.forEach(function(d) {
-      var mn = d.mapName || "Unknown";
-      if (!mapGroups[mn]) { mapGroups[mn] = {map: mn, values: [], kills: 0, deaths: 0, wins: 0, total: 0}; }
-      mapGroups[mn].values.push(d.value);
-      mapGroups[mn].kills += d.kills;
-      mapGroups[mn].deaths += d.deaths;
-      if (d.won) mapGroups[mn].wins++;
-      mapGroups[mn].total++;
-    });
-    Object.keys(mapGroups).forEach(function(mn) {
-      var g = mapGroups[mn];
-      var mSum = 0;
-      g.values.forEach(function(v) { mSum += v; });
-      var mAvg = mSum / g.values.length;
-      var mKd = g.deaths > 0 ? (g.kills / g.deaths) : g.kills;
-      var mHits = 0;
-      if (hasThreshold) {
-        g.values.forEach(function(v) {
-          if (direction === "over" ? v >= threshNum : v < threshNum) mHits++;
-        });
-      }
-      mapSplits.push({
-        map: mn,
-        games: g.total,
-        avg: mAvg,
-        kd: mKd,
-        hitRate: hasThreshold ? (mHits / g.total * 100) : 0,
-        hits: mHits,
-        wins: g.wins,
-        best: Math.max.apply(null, g.values),
-        worst: Math.min.apply(null, g.values)
-      });
-    });
-    mapSplits.sort(function(a, b) { return b.avg - a.avg; });
   }
 
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
@@ -1099,46 +1058,6 @@ function CDLLineCheck(props) {
       </div>
     </div>}
 
-    {/* ── MAP SPLITS ────────────────────────────────────────── */}
-    {mapSplits.length > 1 && <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
-      <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{color: "#555"}}>By map</div>
-
-      {/* Header */}
-      <div className="grid items-center mb-1 px-1" style={{gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""), fontSize: "9px", color: "#444", textTransform: "uppercase", letterSpacing: "0.3px"}}>
-        <span>Map</span>
-        <span className="text-center">#</span>
-        <span className="text-center">Avg</span>
-        <span className="text-center">K/D</span>
-        {hasThreshold && <span className="text-center">Hit</span>}
-      </div>
-
-      {mapSplits.map(function(ms) {
-        var isAboveAvg = ms.avg >= avg;
-        var hitGood = ms.hitRate >= 60;
-        var hitBad = ms.hitRate < 40;
-        return <div key={ms.map} className="grid items-center py-1.5 px-1" style={{
-          gridTemplateColumns: "1fr 40px 48px 48px" + (hasThreshold ? " 64px" : ""),
-          borderBottom: "1px solid rgba(255,255,255,0.03)"
-        }}>
-          <span className="text-xs font-medium text-white truncate">{ms.map}</span>
-          <span className="text-xs text-center" style={{color: "#555"}}>{ms.games}</span>
-          <span className="text-xs text-center font-bold" style={{color: isAboveAvg ? "#52b788" : "#ff6b6b"}}>{isKd ? ms.avg.toFixed(2) : ms.avg.toFixed(1)}</span>
-          <span className="text-xs text-center font-bold" style={{color: kdColor(ms.kd)}}>{ms.kd.toFixed(2)}</span>
-          {hasThreshold && <span className="text-xs text-center font-bold px-1.5 py-0.5 rounded" style={{
-            background: hitGood ? "rgba(82,183,136,0.12)" : hitBad ? "rgba(255,107,107,0.12)" : "rgba(255,209,102,0.12)",
-            color: hitGood ? "#52b788" : hitBad ? "#ff6b6b" : "#ffd166",
-            fontSize: "10px"
-          }}>{ms.hits}/{ms.games}</span>}
-        </div>;
-      })}
-
-      {/* Overall avg reference */}
-      <div className="mt-2 pt-2 flex items-center justify-between" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <span style={{fontSize: "9px", color: "#444"}}>Overall avg</span>
-        <span className="text-xs font-bold" style={{color: "#888"}}>{isKd ? avg.toFixed(2) : avg.toFixed(1)}</span>
-      </div>
-    </div>}
-
     {/* Game log table */}
     {dataPoints.length > 0 && <div className="rounded-xl overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="px-2 py-1.5 grid items-center" style={{
@@ -1177,6 +1096,8 @@ function CDLLinesTab(props) {
   var [query, setQuery] = useState("");
   var [selectedPlayer, setSelectedPlayer] = useState(null);
   var [initialLineParams, setInitialLineParams] = useState(null);
+  var [switchQuery, setSwitchQuery] = useState("");
+  var [switchOpen, setSwitchOpen] = useState(false);
 
   // Read ?line= URL parameter on mount
   useEffect(function() {
@@ -1247,21 +1168,58 @@ function CDLLinesTab(props) {
         </div>
       </div>}
     </div> : <div>
-      <button onClick={function() { setSelectedPlayer(null); }} className="text-xs font-semibold mb-4 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Pick different player</button>
+      <button onClick={function() { setSelectedPlayer(null); setSwitchQuery(""); setSwitchOpen(false); }} className="text-xs font-semibold mb-4 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Pick different player</button>
 
-      <div className="flex items-center gap-3 p-3 rounded-xl mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5"><span className="text-base font-bold text-white truncate">{selectedPlayer.gamertag}</span><RoleBadge role={selectedPlayer.role} /></div>
-          <span className="text-xs" style={{color: "#888"}}>{selectedPlayer.team_name || selectedPlayer.team_abbr || ""}</span>
+      <div className="relative mb-4">
+        <div className="flex items-center gap-3 p-3 rounded-xl cursor-pointer" style={{background: "rgba(255,255,255,0.03)", border: switchOpen ? "1px solid rgba(233,69,96,0.4)" : "1px solid rgba(255,255,255,0.06)"}} onClick={function() { setSwitchOpen(!switchOpen); setSwitchQuery(""); }}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5"><span className="text-base font-bold text-white truncate">{selectedPlayer.gamertag}</span><RoleBadge role={selectedPlayer.role} /></div>
+            <span className="text-xs" style={{color: "#888"}}>{selectedPlayer.team_name || selectedPlayer.team_abbr || ""}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(selectedPlayer, "kd"))}}>{s(selectedPlayer, "kd").toFixed(2)}</div></div>
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "hp_kills_per_10m").toFixed(1)}</div></div>
+            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>Matches</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "matches_played")}</div></div>
+          </div>
+          <div style={{color: switchOpen ? "#e94560" : "#555", transition: "transform 0.2s", transform: switchOpen ? "rotate(180deg)" : "rotate(0deg)"}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
         </div>
-        <div className="grid grid-cols-3 gap-3 flex-shrink-0">
-          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(selectedPlayer, "kd"))}}>{s(selectedPlayer, "kd").toFixed(2)}</div></div>
-          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "hp_kills_per_10m").toFixed(1)}</div></div>
-          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>Matches</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "matches_played")}</div></div>
-        </div>
+
+        {switchOpen && <div className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-50" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxHeight: "320px", overflowY: "auto"}}>
+          <div className="p-2" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+            <input type="text" value={switchQuery} onChange={function(e) { setSwitchQuery(e.target.value); }} placeholder="Search player or team..." autoFocus className="w-full p-2 rounded-lg text-white placeholder-gray-600 outline-none text-sm" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", fontSize: "14px"}} onClick={function(e) { e.stopPropagation(); }} />
+          </div>
+          {(function() {
+            var switchResults;
+            if (switchQuery.length >= 2) {
+              var sq = switchQuery.toLowerCase();
+              switchResults = analysis.playerStats.filter(function(p) {
+                return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
+              }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 8);
+            } else {
+              switchResults = analysis.playerStats.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 10);
+            }
+            return switchResults.map(function(p) {
+              var isActive = p.player_id === selectedPlayer.player_id;
+              return <div key={p.player_id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors" style={{background: isActive ? "rgba(233,69,96,0.1)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.03)"}} onClick={function(e) { e.stopPropagation(); setSelectedPlayer(p); setSwitchOpen(false); setSwitchQuery(""); setInitialLineParams(null); }}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span>{isActive && <span style={{fontSize: "9px", color: "#e94560", fontWeight: 700}}>CURRENT</span>}</div>
+                  <div className="flex items-center gap-1"><RoleBadge role={p.role} /><span style={{fontSize: "10px", color: "#555"}}>{p.team_abbr || ""}</span></div>
+                </div>
+                <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
+              </div>;
+            });
+          })()}
+          {switchQuery.length >= 2 && (function() {
+            var sq = switchQuery.toLowerCase();
+            var count = analysis.playerStats.filter(function(p) {
+              return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
+            }).length;
+            return count === 0 ? <div className="p-4 text-center text-xs" style={{color: "#555"}}>No players found</div> : null;
+          })()}
+        </div>}
       </div>
 
-      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} analysis={analysis} />
+      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} />
     </div>}
   </div>;
 }

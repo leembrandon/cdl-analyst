@@ -28,6 +28,16 @@ async function fetchMatches() {
    return mySupaFetch("match_view", "select=*&status=neq.completed&event_is_cdl=eq.true&order=scheduled_at.asc");
 }
 
+async function fetchResults() {
+  // Completed matches — most recent first
+  return mySupaFetch("match_view", "select=*&status=eq.completed&event_is_cdl=eq.true&order=scheduled_at.desc&limit=30");
+}
+
+async function fetchSeriesMaps(matchId) {
+  // Map-by-map breakdown for a completed series
+  return mySupaFetch("series_map_view", "select=*&match_id=eq." + matchId + "&order=map_number.asc");
+}
+
 async function fetchRosters() {
   // roster_view joins rosters + players + teams + roles
   var rows = await mySupaFetch("roster_view", "select=*");
@@ -144,7 +154,7 @@ function decodePicksParam(param) {
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
-function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings) {
+function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorStandings, completedMatches) {
   var teamLookup = {}, teamPlayers = {}, playerTeam = {}, playerStats = {}, playerRoles = {};
 
   rosters.forEach(function(t) {
@@ -233,7 +243,28 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored, home_team_id: m.home_team_id, away_team_id: m.away_team_id});
   });
 
-  return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
+  // Completed match results — match_view gives us team names and scores
+  var results = (completedMatches || []).map(function(m) {
+    if (!m.home_team_id || !m.away_team_id) return null;
+    var winnerId = m.winner_id;
+    var homeWon = winnerId === m.home_team_id;
+    var awayWon = winnerId === m.away_team_id;
+    return {
+      id: m.id,
+      datetime: m.scheduled_at,
+      bestOf: m.best_of,
+      homeScore: m.home_score || 0,
+      awayScore: m.away_score || 0,
+      winnerId: winnerId,
+      homeWon: homeWon,
+      awayWon: awayWon,
+      home: {id: m.home_team_id, name: m.home_team_name || "", short: m.home_team_abbr || "", color: m.home_team_color || "#888", logo: m.home_team_logo},
+      away: {id: m.away_team_id, name: m.away_team_name || "", short: m.away_team_abbr || "", color: m.away_team_color || "#888", logo: m.away_team_logo},
+      event: {id: m.event_id, name: m.event_name || "", short: m.event_short_name || ""}
+    };
+  }).filter(Boolean);
+
+  return {power: power, matchups: matchups, results: results, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
 }
 
 // ─── UI COMPONENTS ───────────────────────────────────────────
@@ -364,6 +395,98 @@ function MatchCard(props) {
         <TeamRosterBlock teamName={t1S} teamColor={mu.t1Stats && mu.t1Stats.team_color} roster={mu.t1Roster || []} />
         <div className="mt-3" />
         <TeamRosterBlock teamName={t2S} teamColor={mu.t2Stats && mu.t2Stats.team_color} roster={mu.t2Roster || []} />
+      </div>
+    </div>}
+  </div>;
+}
+
+function ResultCard(props) {
+  var r = props.result, onTeamClick = props.onTeamClick;
+  var [expanded, setExpanded] = useState(false);
+  var [maps, setMaps] = useState(null);
+  var [mapsLoading, setMapsLoading] = useState(false);
+
+  var winnerShort = r.homeWon ? r.home.short : r.away.short;
+  var winnerColor = r.homeWon ? r.home.color : r.away.color;
+  var loserShort = r.homeWon ? r.away.short : r.home.short;
+
+  var handleExpand = function() {
+    var next = !expanded;
+    setExpanded(next);
+    if (next && !maps && !mapsLoading) {
+      setMapsLoading(true);
+      fetchSeriesMaps(r.id).then(function(data) {
+        setMaps(data || []);
+      }).catch(function() {
+        setMaps([]);
+      }).finally(function() {
+        setMapsLoading(false);
+      });
+    }
+  };
+
+  return <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+    <div className="p-4 cursor-pointer" onClick={handleExpand}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs uppercase tracking-wider opacity-40">{r.event.short || r.event.name} · Bo{r.bestOf}</span>
+        <span className="text-xs px-2 py-0.5 rounded-full" style={{background: "rgba(82,183,136,0.12)", color: "#52b788"}}>Final</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-8 rounded" style={{background: r.home.color}} />
+          <span className="font-bold text-xl" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.home.short}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl font-black tabular-nums" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.homeScore}</span>
+          <span className="text-xs opacity-30">-</span>
+          <span className="text-2xl font-black tabular-nums" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.awayScore}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-xl" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.away.short}</span>
+          <div className="w-2 h-8 rounded" style={{background: r.away.color}} />
+        </div>
+      </div>
+      <div className="flex justify-between mt-3 text-xs opacity-50">
+        <span>{utcToET(r.datetime)}</span>
+        <span style={{color: winnerColor}}>{winnerShort} wins {r.homeWon ? r.homeScore : r.awayScore}-{r.homeWon ? r.awayScore : r.homeScore}</span>
+        <span>{expanded ? "\u25B2 collapse" : "\u25BC map details"}</span>
+      </div>
+    </div>
+
+    {expanded && <div className="px-4 pb-4 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
+      {mapsLoading && <div className="py-4 text-center"><div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /></div>}
+
+      {maps && maps.length > 0 && <div>
+        <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Map breakdown</div>
+
+        {/* Column headers */}
+        <div className="grid items-center py-1.5 mb-1" style={{gridTemplateColumns: "24px 1fr 1fr 60px 60px", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+          <span style={{fontSize: "10px", color: "#555"}}>#</span>
+          <span style={{fontSize: "10px", color: "#555"}}>Mode</span>
+          <span style={{fontSize: "10px", color: "#555"}}>Map</span>
+          <span style={{fontSize: "10px", color: r.home.color, textAlign: "center", fontWeight: 700}}>{r.home.short}</span>
+          <span style={{fontSize: "10px", color: r.away.color, textAlign: "center", fontWeight: 700}}>{r.away.short}</span>
+        </div>
+
+        {maps.map(function(m) {
+          var homeWonMap = m.winner_id === r.home.id;
+          var awayWonMap = m.winner_id === r.away.id;
+          return <div key={m.id} className="grid items-center py-2" style={{gridTemplateColumns: "24px 1fr 1fr 60px 60px", borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+            <span className="text-xs font-bold" style={{color: "#555"}}>{m.map_number}</span>
+            <span className="text-xs font-semibold" style={{color: "#888"}}>{m.mode_short || m.mode_name}</span>
+            <span className="text-xs" style={{color: "#666"}}>{m.map_name}</span>
+            <span className="text-sm font-bold text-center tabular-nums" style={{color: homeWonMap ? "#52b788" : "#555"}}>{m.home_score}</span>
+            <span className="text-sm font-bold text-center tabular-nums" style={{color: awayWonMap ? "#52b788" : "#555"}}>{m.away_score}</span>
+          </div>;
+        })}
+      </div>}
+
+      {maps && maps.length === 0 && <div className="py-3 text-center text-xs" style={{color: "#555"}}>No map data available</div>}
+
+      {/* Team links */}
+      <div className="flex justify-center gap-4 mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.home.id); }} className="text-xs font-semibold hover:underline" style={{color: r.home.color}}>{r.home.name} →</button>
+        <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.away.id); }} className="text-xs font-semibold hover:underline" style={{color: r.away.color}}>{r.away.name} →</button>
       </div>
     </div>}
   </div>;
@@ -1230,6 +1353,39 @@ function CDLLinesTab(props) {
   </div>;
 }
 
+// ─── SCHEDULE TAB ───────────────────────────────────────────
+
+function ScheduleTab(props) {
+  var analysis = props.analysis, openTeam = props.openTeam;
+  var [view, setView] = useState("upcoming");
+
+  return <div className="space-y-3">
+    <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
+
+    {/* Upcoming / Results toggle */}
+    <div className="flex rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <button onClick={function() { setView("upcoming"); }} className="flex-1 py-2.5 text-sm font-bold transition-all" style={{
+        background: view === "upcoming" ? "#e94560" : "transparent",
+        color: view === "upcoming" ? "#fff" : "#555"
+      }}>Upcoming</button>
+      <button onClick={function() { setView("results"); }} className="flex-1 py-2.5 text-sm font-bold transition-all" style={{
+        background: view === "results" ? "#e94560" : "transparent",
+        color: view === "results" ? "#fff" : "#555"
+      }}>Results</button>
+    </div>
+
+    {view === "upcoming" && <div className="space-y-3">
+      {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
+      {analysis.matchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches with known teams</p></div>}
+    </div>}
+
+    {view === "results" && <div className="space-y-3">
+      {analysis.results.map(function(r) { return <ResultCard key={r.id} result={r} onTeamClick={openTeam} />; })}
+      {analysis.results.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No completed matches yet</p></div>}
+    </div>}
+  </div>;
+}
+
 // ─── PICKS TAB ───────────────────────────────────────────────
 
 var SCORE_OPTIONS = ["3-0", "3-1", "3-2"];
@@ -1641,8 +1797,8 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
-        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID)]);
-        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5]));
+        var results = await Promise.all([fetchPlayers(), fetchTeams(), fetchMatches(), fetchRosters(), fetchStandings(null), fetchStandings(CURRENT_EVENT_ID), fetchResults()]);
+        setAnalysis(buildAnalysis(results[0], results[1], results[2], results[3], results[4], results[5], results[6]));
       } catch(e) {
         console.error(e);
         setError(e.message);
@@ -1676,12 +1832,7 @@ export default function App() {
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
-      {tab === "Schedule" && <div className="space-y-3">
-        <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
-        <h2 className="text-lg font-bold text-white mb-4">Upcoming matches</h2>
-        {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
-        {analysis.matchups.length === 0 && <p className="opacity-40">No upcoming matches with known teams</p>}
-      </div>}
+      {tab === "Schedule" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
       {tab === "Picks" && <PicksTab analysis={analysis} />}
       {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
       {tab === "Teams" && <div>

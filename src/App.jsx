@@ -1168,55 +1168,44 @@ function CDLLinesTab(props) {
         </div>
       </div>}
     </div> : <div>
-      <button onClick={function() { setSelectedPlayer(null); setSwitchQuery(""); setSwitchOpen(false); }} className="text-xs font-semibold mb-4 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Pick different player</button>
+      <button onClick={function() { setSelectedPlayer(null); setSwitchQuery(""); setSwitchOpen(false); }} className="text-xs font-semibold mb-3 flex items-center gap-1" style={{color: "#e94560"}}>{"\u2190"} Back</button>
 
-      <div className="relative mb-4">
-        <div className="flex items-center gap-3 p-3 rounded-xl cursor-pointer" style={{background: "rgba(255,255,255,0.03)", border: switchOpen ? "1px solid rgba(233,69,96,0.4)" : "1px solid rgba(255,255,255,0.06)"}} onClick={function() { setSwitchOpen(!switchOpen); setSwitchQuery(""); }}>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5"><span className="text-base font-bold text-white truncate">{selectedPlayer.gamertag}</span><RoleBadge role={selectedPlayer.role} /></div>
-            <span className="text-xs" style={{color: "#888"}}>{selectedPlayer.team_name || selectedPlayer.team_abbr || ""}</span>
-          </div>
-          <div className="grid grid-cols-3 gap-3 flex-shrink-0">
-            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(selectedPlayer, "kd"))}}>{s(selectedPlayer, "kd").toFixed(2)}</div></div>
-            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "hp_kills_per_10m").toFixed(1)}</div></div>
-            <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>Matches</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "matches_played")}</div></div>
-          </div>
-          <div style={{color: switchOpen ? "#e94560" : "#555", transition: "transform 0.2s", transform: switchOpen ? "rotate(180deg)" : "rotate(0deg)"}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div className="relative mb-3">
+        <div style={{position: "relative"}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" value={switchQuery} onChange={function(e) { setSwitchQuery(e.target.value); setSwitchOpen(true); }} onFocus={function() { setSwitchOpen(true); }} onBlur={function() { setTimeout(function() { setSwitchOpen(false); }, 200); }} placeholder="Switch to another player..." className="w-full py-2.5 pr-3 rounded-xl text-white placeholder-gray-600 outline-none text-sm" style={{background: "rgba(255,255,255,0.04)", border: switchOpen && switchQuery.length >= 2 ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.07)", fontSize: "14px", paddingLeft: "34px"}} />
         </div>
-
-        {switchOpen && <div className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-50" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxHeight: "320px", overflowY: "auto"}}>
-          <div className="p-2" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
-            <input type="text" value={switchQuery} onChange={function(e) { setSwitchQuery(e.target.value); }} placeholder="Search player or team..." autoFocus className="w-full p-2 rounded-lg text-white placeholder-gray-600 outline-none text-sm" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", fontSize: "14px"}} onClick={function(e) { e.stopPropagation(); }} />
-          </div>
+        {switchOpen && switchQuery.length >= 2 && <div className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-50" style={{background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxHeight: "300px", overflowY: "auto"}}>
           {(function() {
-            var switchResults;
-            if (switchQuery.length >= 2) {
-              var sq = switchQuery.toLowerCase();
-              switchResults = analysis.playerStats.filter(function(p) {
-                return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
-              }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 8);
-            } else {
-              switchResults = analysis.playerStats.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 10);
-            }
+            var sq = switchQuery.toLowerCase();
+            var switchResults = analysis.playerStats.filter(function(p) {
+              return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
+            }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); }).slice(0, 8);
+            if (switchResults.length === 0) return <div className="p-4 text-center text-xs" style={{color: "#555"}}>No players found</div>;
             return switchResults.map(function(p) {
               var isActive = p.player_id === selectedPlayer.player_id;
-              return <div key={p.player_id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors" style={{background: isActive ? "rgba(233,69,96,0.1)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.03)"}} onClick={function(e) { e.stopPropagation(); setSelectedPlayer(p); setSwitchOpen(false); setSwitchQuery(""); setInitialLineParams(null); }}>
+              return <div key={p.player_id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors" style={{background: isActive ? "rgba(233,69,96,0.08)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.03)"}} onClick={function() { setSelectedPlayer(p); setSwitchOpen(false); setSwitchQuery(""); setInitialLineParams(null); }}>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span>{isActive && <span style={{fontSize: "9px", color: "#e94560", fontWeight: 700}}>CURRENT</span>}</div>
+                  <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span>{isActive && <span style={{fontSize: "9px", color: "#e94560", fontWeight: 700}}>VIEWING</span>}</div>
                   <div className="flex items-center gap-1"><RoleBadge role={p.role} /><span style={{fontSize: "10px", color: "#555"}}>{p.team_abbr || ""}</span></div>
                 </div>
                 <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
               </div>;
             });
           })()}
-          {switchQuery.length >= 2 && (function() {
-            var sq = switchQuery.toLowerCase();
-            var count = analysis.playerStats.filter(function(p) {
-              return (p.gamertag && p.gamertag.toLowerCase().indexOf(sq) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(sq) !== -1);
-            }).length;
-            return count === 0 ? <div className="p-4 text-center text-xs" style={{color: "#555"}}>No players found</div> : null;
-          })()}
         </div>}
+      </div>
+
+      <div className="flex items-center gap-3 p-3 rounded-xl mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5"><span className="text-base font-bold text-white truncate">{selectedPlayer.gamertag}</span><RoleBadge role={selectedPlayer.role} /></div>
+          <span className="text-xs" style={{color: "#888"}}>{selectedPlayer.team_name || selectedPlayer.team_abbr || ""}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="text-sm font-bold" style={{color: kdColor(s(selectedPlayer, "kd"))}}>{s(selectedPlayer, "kd").toFixed(2)}</div></div>
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>HP K/10</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "hp_kills_per_10m").toFixed(1)}</div></div>
+          <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>Matches</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(selectedPlayer, "matches_played")}</div></div>
+        </div>
       </div>
 
       <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} />

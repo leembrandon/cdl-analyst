@@ -810,10 +810,13 @@ function CDLLineCheck(props) {
         setLoading(true);
         var results = await Promise.all([
           fetchPlayerMapStats(player.player_id),
-          fetchPlayerMatchStats(player.player_id)
+          fetchPlayerMatchStats(player.player_id),
+          mySupaFetch("match_view", "select=id&event_is_cdl=eq.true")
         ]);
-        setMapLogs(results[0] || []);
-        setSeriesLogs(results[1] || []);
+        var cdlMatchIds = {};
+        (results[2] || []).forEach(function(m) { cdlMatchIds[m.id] = true; });
+        setMapLogs((results[0] || []).filter(function(r) { return cdlMatchIds[r.match_id]; }));
+        setSeriesLogs((results[1] || []).filter(function(r) { return cdlMatchIds[r.match_id]; }));
       } catch(e) { console.error(e); setMapLogs([]); setSeriesLogs([]); }
       finally { setLoading(false); }
     })();

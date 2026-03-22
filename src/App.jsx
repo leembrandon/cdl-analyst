@@ -1356,20 +1356,74 @@ function PickCard(props) {
   </div>;
 }
 
+function SharedPicksBanner(props) {
+  var sharedPicks = props.sharedPicks, matchups = props.matchups, onAdopt = props.onAdopt, onDismiss = props.onDismiss;
+
+  // Build a summary of shared picks
+  var pickSummaries = [];
+  Object.keys(sharedPicks).forEach(function(mid) {
+    var p = sharedPicks[mid];
+    if (!p || !p.teamId || !p.score) return;
+    var mu = matchups.find(function(m) { return String(m.id) === String(mid); });
+    if (!mu) return;
+    var isT1 = p.teamId === mu.home_team_id;
+    pickSummaries.push({
+      winnerAbbr: isT1 ? (mu.t1 && mu.t1.name_short) : (mu.t2 && mu.t2.name_short),
+      winnerColor: isT1 ? ((mu.t1Stats && mu.t1Stats.team_color) || "#888") : ((mu.t2Stats && mu.t2Stats.team_color) || "#888"),
+      loserAbbr: isT1 ? (mu.t2 && mu.t2.name_short) : (mu.t1 && mu.t1.name_short),
+      score: p.score
+    });
+  });
+
+  if (pickSummaries.length === 0) return null;
+
+  return <div className="rounded-xl mb-4 overflow-hidden" style={{background: "rgba(83,168,182,0.06)", border: "1px solid rgba(83,168,182,0.15)"}}>
+    <div className="px-4 pt-3 pb-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#53a8b6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          <span className="text-sm font-bold" style={{color: "#53a8b6"}}>Someone shared their picks</span>
+        </div>
+        <button onClick={onDismiss} className="text-xs opacity-40 hover:opacity-80 px-2 py-1" style={{color: "#888"}}>{"\u2715"}</button>
+      </div>
+    </div>
+
+    {/* Compact pick list */}
+    <div className="px-4 pb-2">
+      <div className="flex flex-wrap gap-2">
+        {pickSummaries.map(function(ps, i) {
+          return <div key={i} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{background: "rgba(255,255,255,0.04)"}}>
+            <div className="w-1 h-4 rounded-full" style={{background: ps.winnerColor}} />
+            <span className="text-xs font-bold text-white">{ps.winnerAbbr}</span>
+            <span className="text-xs font-bold" style={{color: "#52b788"}}>{ps.score}</span>
+            <span className="text-xs" style={{color: "#555"}}>{ps.loserAbbr}</span>
+          </div>;
+        })}
+      </div>
+    </div>
+
+    {/* Action buttons */}
+    <div className="px-4 pb-3 pt-2 flex gap-2" style={{borderTop: "1px solid rgba(83,168,182,0.1)"}}>
+      <button onClick={onAdopt} className="flex-1 py-2 rounded-xl text-xs font-bold" style={{background: "rgba(83,168,182,0.15)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>Use as starting point</button>
+      <button onClick={onDismiss} className="flex-1 py-2 rounded-xl text-xs font-bold" style={{background: "rgba(255,255,255,0.04)", color: "#888", border: "1px solid rgba(255,255,255,0.06)"}}>Start fresh</button>
+    </div>
+  </div>;
+}
+
 function PicksTab(props) {
   var analysis = props.analysis;
-  var [picks, setPicks] = useState(function() {
-    // Check URL for shared picks first
+
+  // Separate shared picks from user's own picks
+  var [sharedPicks] = useState(function() {
     try {
       var params = new URLSearchParams(window.location.search);
       var shared = params.get("picks");
       if (shared) return decodePicksParam(shared);
     } catch(e) {}
-    return loadPicks();
+    return null;
   });
-  var [viewingShared, setViewingShared] = useState(function() {
-    try { return !!new URLSearchParams(window.location.search).get("picks"); } catch(e) { return false; }
-  });
+  var [showSharedBanner, setShowSharedBanner] = useState(!!sharedPicks);
+  var [picks, setPicks] = useState(function() { return loadPicks(); });
   var [linkCopied, setLinkCopied] = useState(false);
   var [sharing, setSharing] = useState(false);
   var [selectedEventId, setSelectedEventId] = useState(null);
@@ -1410,11 +1464,6 @@ function PicksTab(props) {
         next[matchId] = pick;
       }
       savePicks(next);
-      // Clear shared view mode when user makes their own picks
-      if (viewingShared) {
-        setViewingShared(false);
-        window.history.replaceState(null, "", window.location.pathname);
-      }
       return next;
     });
   };
@@ -1432,7 +1481,6 @@ function PicksTab(props) {
   var handleClearAll = function() {
     setPicks(function(prev) {
       var next = Object.assign({}, prev);
-      // Only clear picks for the currently filtered matches
       filteredMatchups.forEach(function(mu) {
         delete next[mu.id];
       });
@@ -1441,8 +1489,23 @@ function PicksTab(props) {
     });
   };
 
+  var handleAdoptShared = function() {
+    if (!sharedPicks) return;
+    setPicks(function(prev) {
+      var next = Object.assign({}, prev, sharedPicks);
+      savePicks(next);
+      return next;
+    });
+    setShowSharedBanner(false);
+    window.history.replaceState(null, "", window.location.pathname);
+  };
+
+  var handleDismissShared = function() {
+    setShowSharedBanner(false);
+    window.history.replaceState(null, "", window.location.pathname);
+  };
+
   var handleCopyLink = function() {
-    // Only encode picks for the current event
     var eventPicks = {};
     completedPicks.forEach(function(mid) { eventPicks[mid] = picks[mid]; });
     var encoded = encodePicksParam(eventPicks);
@@ -1460,7 +1523,6 @@ function PicksTab(props) {
   var handleShareImage = function() {
     if (sharing || pickedCount === 0) return;
     setSharing(true);
-    // Build pick data for the share renderer — only current event
     var pickData = completedPicks.map(function(mid) {
       var p = picks[mid];
       var mu = filteredMatchups.find(function(m) { return String(m.id) === String(mid); });
@@ -1487,18 +1549,15 @@ function PicksTab(props) {
     }).then(function() { setSharing(false); }).catch(function(e) { console.error(e); setSharing(false); });
   };
 
-  var handleAdoptPicks = function() {
-    savePicks(picks);
-    setViewingShared(false);
-    window.history.replaceState(null, "", window.location.pathname);
-  };
-
   return <div>
     {/* Header with event name */}
     <div className="mb-4">
-      <h2 className="text-lg font-bold text-white mb-1">{viewingShared ? "Shared picks" : activeEventName}</h2>
-      <p className="text-xs" style={{color: "#555"}}>{viewingShared ? "Someone shared their predictions with you" : "Pick who you think wins each series and the score"}</p>
+      <h2 className="text-lg font-bold text-white mb-1">{activeEventName}</h2>
+      <p className="text-xs" style={{color: "#555"}}>Pick who you think wins each series and the score</p>
     </div>
+
+    {/* Shared picks banner */}
+    {showSharedBanner && sharedPicks && <SharedPicksBanner sharedPicks={sharedPicks} matchups={matchups} onAdopt={handleAdoptShared} onDismiss={handleDismissShared} />}
 
     {/* Event selector — only show if there are multiple events */}
     {events.length > 1 && <div className="flex flex-wrap gap-1.5 mb-4">
@@ -1543,12 +1602,9 @@ function PicksTab(props) {
         </button>
       </div>}
 
-      {/* Clear all + Adopt shared */}
-      {pickedCount > 0 && !viewingShared && <div className="mt-3 pt-3 flex justify-end" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+      {/* Clear all */}
+      {pickedCount > 0 && <div className="mt-3 pt-3 flex justify-end" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
         <button onClick={handleClearAll} className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:opacity-100" style={{background: "rgba(255,107,107,0.08)", color: "#ff6b6b", border: "1px solid rgba(255,107,107,0.15)", opacity: 0.7}}>Clear all picks</button>
-      </div>}
-      {viewingShared && <div className="mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <button onClick={handleAdoptPicks} className="w-full py-2 rounded-xl text-sm font-bold" style={{background: "rgba(83,168,182,0.15)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>Save these picks as mine</button>
       </div>}
     </div>
 

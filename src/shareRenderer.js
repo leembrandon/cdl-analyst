@@ -527,3 +527,141 @@ export function shareLineCard(data, shareUrl) {
     }
   });
 }
+
+// ─── PICKS SHARE CARD ───────────────────────────────────────
+
+/**
+ * Render a picks share image as a Canvas.
+ *
+ * picks = [{
+ *   winnerAbbr, winnerColor, loserAbbr, loserColor,
+ *   score, eventShort, datetime
+ * }]
+ */
+export function renderPicksCard(picks) {
+  var ROW_H = 56;
+  var headerH = 40;
+  var titleH = 64;
+  var footerH = 40;
+  var numPicks = picks.length;
+  var cardHeight = headerH + titleH + (numPicks * ROW_H) + footerH;
+
+  var scale = 2;
+  var canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH * scale;
+  canvas.height = cardHeight * scale;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  // Background
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
+
+  var y = 0;
+  var mid = CARD_WIDTH / 2;
+
+  // --- Header ---
+  ctx.fillStyle = "rgba(233,69,96,0.08)";
+  ctx.fillRect(0, 0, CARD_WIDTH, headerH);
+  drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
+  drawText(ctx, "CDL 2026", CARD_WIDTH - CARD_PADDING, 15, {size: 10, weight: "400", color: TEXT_MUTED, align: "right"});
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
+  y = headerH;
+
+  // --- Title area ---
+  drawText(ctx, "MY PICKS", mid, y + 14, {size: 22, weight: "900", color: TEXT_WHITE, align: "center"});
+  drawText(ctx, numPicks + " match" + (numPicks !== 1 ? "es" : "") + " predicted", mid, y + 42, {size: 11, weight: "400", color: TEXT_DIM, align: "center"});
+  y += titleH;
+
+  // --- Divider ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+  y += 1;
+
+  // --- Pick rows ---
+  picks.forEach(function(pick, i) {
+    var rowY = y + (i * ROW_H);
+    var centerY = rowY + ROW_H / 2;
+
+    // Alternating row bg
+    if (i % 2 === 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.02)";
+      ctx.fillRect(0, rowY, CARD_WIDTH, ROW_H);
+    }
+
+    // Row divider
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(CARD_PADDING, rowY + ROW_H - 1, CARD_WIDTH - CARD_PADDING * 2, 1);
+
+    // Winner team color bar
+    fillRoundedRect(ctx, CARD_PADDING, centerY - 12, 4, 24, 2, pick.winnerColor || "#888");
+
+    // Winner name (bold, large)
+    drawText(ctx, pick.winnerAbbr || "?", CARD_PADDING + 16, centerY - 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "left"});
+
+    // Score in the middle
+    var scoreX = mid;
+    // Score background pill
+    var scoreText = pick.score || "?";
+    fillRoundedRect(ctx, scoreX - 28, centerY - 12, 56, 24, 12, "rgba(82,183,136,0.15)");
+    drawText(ctx, scoreText, scoreX, centerY - 5, {size: 14, weight: "900", color: GREEN, align: "center"});
+
+    // Loser team
+    drawText(ctx, pick.loserAbbr || "?", CARD_WIDTH - CARD_PADDING - 16, centerY - 12, {size: 18, weight: "700", color: "#666666", align: "right"});
+    fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 4, centerY - 12, 4, 24, 2, pick.loserColor || "#888");
+
+    // Event + date subtitle
+    var subText = (pick.eventShort || "");
+    if (pick.datetime) {
+      try {
+        var d = new Date(pick.datetime);
+        subText += " · " + d.toLocaleDateString("en-US", {month: "short", day: "numeric"});
+      } catch(e) {}
+    }
+    drawText(ctx, subText, CARD_PADDING + 16, centerY + 10, {size: 9, weight: "400", color: TEXT_MUTED, align: "left"});
+  });
+
+  y += numPicks * ROW_H;
+
+  // --- Footer ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, y, CARD_WIDTH, 1);
+  y += 1;
+
+  drawText(ctx, "thebarracks.vercel.app", mid, y + 12, {size: 9, weight: "400", color: "rgba(255,255,255,0.25)", align: "center"});
+
+  return canvas;
+}
+
+/**
+ * Share or download a picks card image.
+ */
+export function sharePicksImage(picks, shareUrl) {
+  return new Promise(function(resolve, reject) {
+    try {
+      var canvas = renderPicksCard(picks);
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          reject(new Error("Failed to generate image"));
+          return;
+        }
+        var file = new File([blob], "barracks-picks.png", {type: "image/png"});
+        if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+          navigator.share({
+            files: [file],
+            title: "My CDL Picks — Barracks",
+            url: shareUrl || undefined
+          }).then(resolve).catch(resolve);
+        } else {
+          var link = document.createElement("a");
+          link.download = "barracks-picks.png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          resolve();
+        }
+      }, "image/png");
+    } catch (e) {
+      reject(e);
+    }
+  });
+}

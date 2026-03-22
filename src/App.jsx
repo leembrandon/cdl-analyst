@@ -418,6 +418,7 @@ function ResultCard(props) {
   var [mapPlayerStats, setMapPlayerStats] = useState(null);
   var [detailLoading, setDetailLoading] = useState(false);
   var [activeMap, setActiveMap] = useState(null);
+  var [sharing, setSharing] = useState(false);
 
   var winnerShort = r.homeWon ? r.home.short : r.away.short;
   var winnerColor = r.homeWon ? r.home.color : r.away.color;
@@ -652,10 +653,47 @@ function ResultCard(props) {
         </div>
       </div>}
 
-      {/* Team links */}
-      <div className="flex justify-center gap-4 mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
-        <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.home.id); }} className="text-xs font-semibold hover:underline" style={{color: r.home.color}}>{r.home.name} →</button>
-        <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.away.id); }} className="text-xs font-semibold hover:underline" style={{color: r.away.color}}>{r.away.name} →</button>
+      {/* Footer — share + team links */}
+      <div className="mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <div className="flex justify-center gap-4 mb-3">
+          <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.home.id); }} className="text-xs font-semibold hover:underline" style={{color: r.home.color}}>{r.home.name} →</button>
+          <button onClick={function(e) {
+            e.stopPropagation();
+            if (sharing || !homeTeamSeries) return;
+            setSharing(true);
+            var viewLabel = activeMap === null ? "Series" : "";
+            if (activeMap !== null && maps) {
+              maps.forEach(function(m) {
+                if (m.map_number === activeMap) viewLabel = "Map " + m.map_number + " — " + (m.mode_name || "") + " — " + (m.map_name || "");
+              });
+            }
+            var shareData = {
+              home: {short: r.home.short, color: r.home.color, id: r.home.id},
+              away: {short: r.away.short, color: r.away.color, id: r.away.id},
+              homeScore: r.homeScore, awayScore: r.awayScore,
+              homeWon: r.homeWon, awayWon: r.awayWon,
+              eventName: r.event.short || r.event.name || "CDL 2026",
+              maps: maps || [],
+              homePlayers: displayHome.map(function(p) { return {name: gamertagMap[p.player_id] || p.player_id, kills: p.kills, deaths: p.deaths, damage: p.damage, kd: p.kd}; }),
+              awayPlayers: displayAway.map(function(p) { return {name: gamertagMap[p.player_id] || p.player_id, kills: p.kills, deaths: p.deaths, damage: p.damage, kd: p.kd}; }),
+              homeTeamTotals: activeMap === null ? homeTeamSeries : null,
+              awayTeamTotals: activeMap === null ? awayTeamSeries : null,
+              viewLabel: viewLabel
+            };
+            import("./shareRenderer.js").then(function(mod) {
+              return mod.shareResultImage(shareData);
+            }).catch(function(err) { console.error("Share error:", err); }).finally(function() { setSharing(false); });
+          }} disabled={sharing || !homeTeamSeries} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all" style={{
+            background: sharing ? "rgba(233,69,96,0.2)" : "rgba(233,69,96,0.1)",
+            color: sharing ? "#888" : "#e94560",
+            border: "1px solid rgba(233,69,96,0.2)",
+            opacity: !homeTeamSeries ? 0.3 : 1
+          }}>
+            {sharing ? <div className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+            <span>{sharing ? "..." : "Share"}</span>
+          </button>
+          <button onClick={function(e) { e.stopPropagation(); onTeamClick(r.away.id); }} className="text-xs font-semibold hover:underline" style={{color: r.away.color}}>{r.away.name} →</button>
+        </div>
       </div>
     </div>}
   </div>;

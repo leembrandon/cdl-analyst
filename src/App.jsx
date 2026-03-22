@@ -102,6 +102,45 @@ function winPct(wins, losses) {
   return total > 0 ? ((wins || 0) / total) * 100 : 0;
 }
 
+// ─── PICKS STORAGE ───────────────────────────────────────────
+
+var PICKS_KEY = "barracks_picks";
+
+function loadPicks() {
+  try {
+    var raw = localStorage.getItem(PICKS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+function savePicks(picks) {
+  try { localStorage.setItem(PICKS_KEY, JSON.stringify(picks)); } catch(e) {}
+}
+
+function encodePicksParam(picks) {
+  // Format: matchId.teamId.score|matchId.teamId.score|...
+  var parts = [];
+  Object.keys(picks).forEach(function(matchId) {
+    var p = picks[matchId];
+    if (p && p.teamId && p.score) {
+      parts.push(matchId + "." + p.teamId + "." + p.score);
+    }
+  });
+  return parts.join("|");
+}
+
+function decodePicksParam(param) {
+  var picks = {};
+  if (!param) return picks;
+  param.split("|").forEach(function(part) {
+    var segs = part.split(".");
+    if (segs.length === 3) {
+      picks[segs[0]] = {teamId: Number(segs[1]), score: segs[2]};
+    }
+  });
+  return picks;
+}
+
 // ─── BUILD ANALYSIS ──────────────────────────────────────────
 // Views give us names already, so this is much simpler than v1.
 
@@ -191,7 +230,7 @@ function buildAnalysis(players, teams, matches, rosters, seasonStandings, majorS
     var t2Obj = {name: m.away_team_name || "", name_short: m.away_team_abbr || ""};
     var evObj = {id: m.event_id, name: m.event_name || "", name_short: m.event_short_name || ""};
 
-    matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored});
+    matchups.push({id: m.id, datetime: m.scheduled_at, bestOf: m.best_of, t1: t1Obj, t2: t2Obj, event: evObj, round: m.round_name, t1Stats: t1, t2Stats: t2, t1Roster: rosterStats(m.home_team_id), t2Roster: rosterStats(m.away_team_id), p1: p1, p2: p2, edge: edge, favored: favored, home_team_id: m.home_team_id, away_team_id: m.away_team_id});
   });
 
   return {power: power, matchups: matchups, teamStats: teamStats, playerStats: allPs, rosterStats: rosterStats, topKd: topKd, topHpK: topHpK, topSndKpr: topSndKpr, teamLookup: teamLookup, teamPlayers: teamPlayers, powerLookup: powerLookup, standingsLookup: standingsLookup, majorStandingsLookup: majorStandingsLookup, seasonStandings: seasonStandings || [], majorStandings: majorStandings || []};
@@ -828,9 +867,7 @@ function CDLLineCheck(props) {
   // Build the data points based on category
   var dataPoints = [];
   if (activeCat.source === "map") {
-    // Filter map_stats_view by mode name, grab kills per map
     var filtered = mapLogs.filter(function(m) { return m.mode_name === activeCat.mode; });
-    // Each row is one map occurrence — already sorted by date desc
     dataPoints = filtered.slice(0, range).map(function(m) {
       return {
         value: Number(m[activeCat.field]) || 0,
@@ -846,9 +883,7 @@ function CDLLineCheck(props) {
       };
     });
   } else if (activeCat.source === "combo") {
-    // Maps 1-3 Kills: sum kills from map_stats_view where map_number <= 3, grouped per match
     var onlyFirst3 = mapLogs.filter(function(m) { return m.map_number <= 3; });
-    // Group by match_id and sum kills
     var matchGroups = {};
     var matchOrder = [];
     onlyFirst3.forEach(function(m) {
@@ -861,7 +896,6 @@ function CDLLineCheck(props) {
       matchGroups[mid].deaths += (m.deaths || 0);
       matchGroups[mid].mapsInGroup += 1;
     });
-    // Only include matches that had all 3 maps
     dataPoints = matchOrder.filter(function(mid) {
       return matchGroups[mid].mapsInGroup >= 3;
     }).slice(0, range).map(function(mid) {
@@ -880,7 +914,6 @@ function CDLLineCheck(props) {
       };
     });
   } else {
-    // Series-level: use match_stats_view (full series K/D)
     var sliced = seriesLogs.slice(0, range);
     dataPoints = sliced.map(function(m) {
       var val;
@@ -913,7 +946,6 @@ function CDLLineCheck(props) {
   }) : [];
   var hitPct = hasThreshold && dataPoints.length > 0 ? (hits.length / dataPoints.length * 100) : 0;
 
-  // Average
   var avg = 0;
   if (dataPoints.length > 0) {
     var sum = 0;
@@ -924,7 +956,6 @@ function CDLLineCheck(props) {
   var hitColor = hitPct >= 60 ? "#52b788" : hitPct >= 40 ? "#ffd166" : "#ff6b6b";
 
   return <div>
-    {/* Category pills */}
     <div className="rounded-xl p-3 mb-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {LINE_CATS.map(function(c) {
@@ -937,8 +968,6 @@ function CDLLineCheck(props) {
           </button>;
         })}
       </div>
-
-      {/* Controls row */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex rounded-lg overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.08)"}}>
           <button onClick={function() { setDirection("over"); }} className="px-3 py-2 text-xs font-bold transition-all" style={{background: direction === "over" ? "rgba(82,183,136,0.2)" : "transparent", color: direction === "over" ? "#52b788" : "#666"}}>Over</button>
@@ -957,13 +986,11 @@ function CDLLineCheck(props) {
       </div>
     </div>
 
-    {/* Result card */}
     {hasThreshold && dataPoints.length > 0 && <div>
       <div className="rounded-xl p-4 mb-3" style={{
         background: hitPct >= 60 ? "rgba(82,183,136,0.06)" : hitPct >= 40 ? "rgba(255,209,102,0.06)" : "rgba(255,107,107,0.06)",
         border: "1px solid " + (hitPct >= 60 ? "rgba(82,183,136,0.15)" : hitPct >= 40 ? "rgba(255,209,102,0.15)" : "rgba(255,107,107,0.15)")
       }}>
-        {/* Player header */}
         <div className="flex items-center gap-3 mb-3 pb-3" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-white truncate">{player.gamertag}</span><RoleBadge role={player.role} /></div>
@@ -975,8 +1002,6 @@ function CDLLineCheck(props) {
             <div className="text-center"><div style={{fontSize: "9px", color: "#555"}}>SnD KPR</div><div className="text-sm font-bold" style={{color: "#aaa"}}>{s(player, "snd_kills_per_round").toFixed(2)}</div></div>
           </div>
         </div>
-
-        {/* Hit rate */}
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-sm font-bold uppercase" style={{color: hitColor}}>{direction} {isKd ? threshNum.toFixed(2) : threshNum} {activeCat.label}</div>
@@ -987,8 +1012,6 @@ function CDLLineCheck(props) {
             <div className="text-sm font-bold" style={{color: hitColor}}>{hitPct.toFixed(0)}%</div>
           </div>
         </div>
-
-        {/* Per-game bubbles */}
         <div className="flex gap-1.5 flex-wrap mb-2">
           {dataPoints.map(function(d, i) {
             var hit = direction === "over" ? d.value >= threshNum : d.value < threshNum;
@@ -1003,15 +1026,11 @@ function CDLLineCheck(props) {
             </div>;
           })}
         </div>
-
-        {/* Footer */}
         <div className="flex items-center justify-between mt-2 pt-2" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
           <span style={{fontSize: "10px", color: "#333", fontWeight: 700}}>BARRACKS</span>
           <span style={{fontSize: "10px", color: "#444"}}>Avg: {isKd ? avg.toFixed(2) : avg.toFixed(1)} / {activeCat.source === "map" ? "map" : "series"}</span>
         </div>
       </div>
-
-      {/* Share / Copy link */}
       <div className="flex justify-center gap-2 mb-3">
         <button onClick={function() {
           if (sharing) return;
@@ -1058,7 +1077,6 @@ function CDLLineCheck(props) {
       </div>
     </div>}
 
-    {/* Game log table */}
     {dataPoints.length > 0 && <div className="rounded-xl overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="px-2 py-1.5 grid items-center" style={{
         gridTemplateColumns: activeCat.source === "map" ? "42px 1fr 36px 36px 42px 36px" : "42px 1fr 36px 36px 42px 36px",
@@ -1099,7 +1117,6 @@ function CDLLinesTab(props) {
   var [switchQuery, setSwitchQuery] = useState("");
   var [switchOpen, setSwitchOpen] = useState(false);
 
-  // Read ?line= URL parameter on mount
   useEffect(function() {
     try {
       var params = new URLSearchParams(window.location.search);
@@ -1213,13 +1230,286 @@ function CDLLinesTab(props) {
   </div>;
 }
 
-var TABS = ["Schedule", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
+// ─── PICKS TAB ───────────────────────────────────────────────
+
+var SCORE_OPTIONS = ["3-0", "3-1", "3-2"];
+
+function PickCard(props) {
+  var mu = props.mu, pick = props.pick, onPick = props.onPick;
+  var t1S = (mu.t1 && mu.t1.name_short) || "?";
+  var t2S = (mu.t2 && mu.t2.name_short) || "?";
+  var t1Color = (mu.t1Stats && mu.t1Stats.team_color) || "#888";
+  var t2Color = (mu.t2Stats && mu.t2Stats.team_color) || "#888";
+  var t1Id = mu.home_team_id;
+  var t2Id = mu.away_team_id;
+  var pickedTeam = pick ? pick.teamId : null;
+  var pickedScore = pick ? pick.score : null;
+  var isT1Picked = pickedTeam === t1Id;
+  var isT2Picked = pickedTeam === t2Id;
+  var hasPick = pickedTeam && pickedScore;
+
+  var handleTeamPick = function(teamId) {
+    if (pickedTeam === teamId) {
+      // Deselect team — clear pick
+      onPick(mu.id, null);
+    } else {
+      // Select team, keep score if already set
+      onPick(mu.id, {teamId: teamId, score: pickedScore || null});
+    }
+  };
+
+  var handleScorePick = function(score) {
+    if (!pickedTeam) return;
+    if (pickedScore === score) {
+      // Deselect score
+      onPick(mu.id, {teamId: pickedTeam, score: null});
+    } else {
+      onPick(mu.id, {teamId: pickedTeam, score: score});
+    }
+  };
+
+  // Derive the losing team's map wins from the score
+  var loserWins = "";
+  if (hasPick) {
+    var parts = pickedScore.split("-");
+    loserWins = parts[1] || "0";
+  }
+
+  return <div className="rounded-xl overflow-hidden" style={{
+    background: hasPick ? "rgba(82,183,136,0.04)" : "rgba(255,255,255,0.03)",
+    border: hasPick ? "1px solid rgba(82,183,136,0.15)" : "1px solid rgba(255,255,255,0.06)",
+    transition: "all 0.2s"
+  }}>
+    {/* Match info header */}
+    <div className="px-4 pt-3 pb-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs uppercase tracking-wider opacity-40">{(mu.event && mu.event.name_short) || ""} · Bo{mu.bestOf}</span>
+        <span className="text-xs opacity-40">{utcToET(mu.datetime)}</span>
+      </div>
+    </div>
+
+    {/* Team selection */}
+    <div className="px-4 pb-3">
+      <div className="flex items-center gap-3">
+        {/* Team 1 button */}
+        <button onClick={function() { handleTeamPick(t1Id); }} className="flex-1 flex items-center gap-2 p-3 rounded-xl transition-all" style={{
+          background: isT1Picked ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+          border: isT1Picked ? "2px solid " + t1Color : "2px solid rgba(255,255,255,0.06)",
+          cursor: "pointer"
+        }}>
+          <div className="w-1.5 h-8 rounded-full flex-shrink-0" style={{background: t1Color}} />
+          <span className="font-bold text-white text-lg">{t1S}</span>
+          {isT1Picked && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52b788" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="ml-auto flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>}
+        </button>
+
+        <div className="flex-shrink-0">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{background: "rgba(255,255,255,0.04)"}}>
+            <span style={{fontSize: "10px", fontWeight: 800, color: "#555"}}>VS</span>
+          </div>
+        </div>
+
+        {/* Team 2 button */}
+        <button onClick={function() { handleTeamPick(t2Id); }} className="flex-1 flex items-center gap-2 p-3 rounded-xl transition-all" style={{
+          background: isT2Picked ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+          border: isT2Picked ? "2px solid " + t2Color : "2px solid rgba(255,255,255,0.06)",
+          cursor: "pointer"
+        }}>
+          {isT2Picked && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52b788" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>}
+          <span className="font-bold text-white text-lg">{t2S}</span>
+          <div className="w-1.5 h-8 rounded-full flex-shrink-0 ml-auto" style={{background: t2Color}} />
+        </button>
+      </div>
+
+      {/* Score selection — only show when a team is picked */}
+      {pickedTeam && <div className="mt-3">
+        <div className="flex items-center gap-2">
+          <span style={{fontSize: "10px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px"}}>Predicted score</span>
+          <div className="flex gap-1.5 flex-1 justify-end">
+            {SCORE_OPTIONS.map(function(score) {
+              var isActive = pickedScore === score;
+              var winnerAbbr = isT1Picked ? t1S : t2S;
+              var loserAbbr = isT1Picked ? t2S : t1S;
+              var parts = score.split("-");
+              return <button key={score} onClick={function() { handleScorePick(score); }} className="px-3 py-2 rounded-lg text-xs font-bold transition-all" style={{
+                background: isActive ? "rgba(82,183,136,0.2)" : "rgba(255,255,255,0.04)",
+                border: isActive ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                color: isActive ? "#52b788" : "#666"
+              }}>
+                {score}
+              </button>;
+            })}
+          </div>
+        </div>
+      </div>}
+
+      {/* Pick summary */}
+      {hasPick && <div className="mt-3 pt-3 flex items-center justify-between" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 rounded" style={{background: isT1Picked ? t1Color : t2Color}} />
+          <span className="text-xs font-bold" style={{color: "#52b788"}}>
+            {isT1Picked ? t1S : t2S} wins {pickedScore}
+          </span>
+        </div>
+        <button onClick={function() { onPick(mu.id, null); }} className="text-xs px-2 py-1 rounded opacity-40 hover:opacity-80" style={{background: "rgba(255,255,255,0.05)"}}>Clear</button>
+      </div>}
+    </div>
+  </div>;
+}
+
+function PicksTab(props) {
+  var analysis = props.analysis;
+  var [picks, setPicks] = useState(function() {
+    // Check URL for shared picks first
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var shared = params.get("picks");
+      if (shared) return decodePicksParam(shared);
+    } catch(e) {}
+    return loadPicks();
+  });
+  var [viewingShared, setViewingShared] = useState(function() {
+    try { return !!new URLSearchParams(window.location.search).get("picks"); } catch(e) { return false; }
+  });
+  var [linkCopied, setLinkCopied] = useState(false);
+  var [sharing, setSharing] = useState(false);
+
+  var matchups = analysis.matchups;
+
+  var handlePick = function(matchId, pick) {
+    setPicks(function(prev) {
+      var next = Object.assign({}, prev);
+      if (!pick || (!pick.teamId)) {
+        delete next[matchId];
+      } else {
+        next[matchId] = pick;
+      }
+      savePicks(next);
+      // Clear shared view mode when user makes their own picks
+      if (viewingShared) {
+        setViewingShared(false);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+      return next;
+    });
+  };
+
+  var completedPicks = Object.keys(picks).filter(function(mid) {
+    var p = picks[mid];
+    return p && p.teamId && p.score;
+  });
+  var totalMatches = matchups.length;
+  var pickedCount = completedPicks.length;
+
+  var handleCopyLink = function() {
+    var encoded = encodePicksParam(picks);
+    if (!encoded) return;
+    var url = window.location.origin + window.location.pathname + "?picks=" + encoded;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() {
+        setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000);
+      }).catch(function() { prompt("Copy this link:", url); });
+    } else {
+      prompt("Copy this link:", url);
+    }
+  };
+
+  var handleShareImage = function() {
+    if (sharing || pickedCount === 0) return;
+    setSharing(true);
+    // Build pick data for the share renderer
+    var pickData = completedPicks.map(function(mid) {
+      var p = picks[mid];
+      var mu = matchups.find(function(m) { return String(m.id) === String(mid); });
+      if (!mu) return null;
+      var isT1 = p.teamId === mu.home_team_id;
+      return {
+        winnerAbbr: isT1 ? (mu.t1 && mu.t1.name_short) : (mu.t2 && mu.t2.name_short),
+        winnerColor: isT1 ? ((mu.t1Stats && mu.t1Stats.team_color) || "#888") : ((mu.t2Stats && mu.t2Stats.team_color) || "#888"),
+        loserAbbr: isT1 ? (mu.t2 && mu.t2.name_short) : (mu.t1 && mu.t1.name_short),
+        loserColor: isT1 ? ((mu.t2Stats && mu.t2Stats.team_color) || "#888") : ((mu.t1Stats && mu.t1Stats.team_color) || "#888"),
+        score: p.score,
+        eventShort: (mu.event && mu.event.name_short) || "",
+        datetime: mu.datetime
+      };
+    }).filter(Boolean);
+
+    var encoded = encodePicksParam(picks);
+    var shareUrl = window.location.origin + window.location.pathname + "?picks=" + encoded;
+
+    import("./shareRenderer.js").then(function(mod) {
+      return mod.sharePicksImage(pickData, shareUrl);
+    }).then(function() { setSharing(false); }).catch(function(e) { console.error(e); setSharing(false); });
+  };
+
+  var handleAdoptPicks = function() {
+    savePicks(picks);
+    setViewingShared(false);
+    window.history.replaceState(null, "", window.location.pathname);
+  };
+
+  return <div>
+    <div className="mb-4">
+      <h2 className="text-lg font-bold text-white mb-1">{viewingShared ? "Shared picks" : "Make your picks"}</h2>
+      <p className="text-xs" style={{color: "#555"}}>{viewingShared ? "Someone shared their predictions with you" : "Pick who you think wins each series and the score"}</p>
+    </div>
+
+    {/* Summary card */}
+    <div className="rounded-xl p-4 mb-4" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-2xl font-black text-white">{pickedCount}<span style={{fontSize: "14px", fontWeight: 400, color: "#555"}}>/{totalMatches}</span></div>
+          <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>Matches picked</div>
+        </div>
+        {/* Progress bar */}
+        <div className="flex-1 mx-4">
+          <div className="h-2 rounded-full overflow-hidden" style={{background: "rgba(255,255,255,0.06)"}}>
+            <div className="h-full rounded-full transition-all" style={{
+              width: (totalMatches > 0 ? (pickedCount / totalMatches * 100) : 0) + "%",
+              background: pickedCount === totalMatches && totalMatches > 0 ? "#52b788" : "#e94560"
+            }} />
+          </div>
+        </div>
+        {pickedCount === totalMatches && totalMatches > 0 && <span className="text-xs font-bold px-2 py-1 rounded-lg" style={{background: "rgba(82,183,136,0.15)", color: "#52b788"}}>All in!</span>}
+      </div>
+
+      {/* Share buttons */}
+      {pickedCount > 0 && <div className="flex gap-2">
+        <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1}}>
+          {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+          <span>{sharing ? "Generating..." : "Share picks"}</span>
+        </button>
+        <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0"}}>
+          {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+          <span>{linkCopied ? "Copied!" : "Copy link"}</span>
+        </button>
+      </div>}
+
+      {/* Adopt shared picks */}
+      {viewingShared && <div className="mt-3 pt-3" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}>
+        <button onClick={handleAdoptPicks} className="w-full py-2 rounded-xl text-sm font-bold" style={{background: "rgba(83,168,182,0.15)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>Save these picks as mine</button>
+      </div>}
+    </div>
+
+    {/* Match pick cards */}
+    <div className="space-y-3">
+      {matchups.map(function(mu) {
+        return <PickCard key={mu.id} mu={mu} pick={picks[mu.id] || null} onPick={handlePick} />;
+      })}
+      {matchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches to pick</p></div>}
+    </div>
+  </div>;
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────
+
+var TABS = ["Schedule", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
-  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : "Schedule");
+  var picksParam = urlParams.get("picks");
+  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : picksParam ? "Picks" : "Schedule");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
@@ -1264,6 +1554,7 @@ export default function App() {
         {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
         {analysis.matchups.length === 0 && <p className="opacity-40">No upcoming matches with known teams</p>}
       </div>}
+      {tab === "Picks" && <PicksTab analysis={analysis} />}
       {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
       {tab === "Teams" && <div>
         {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} /> : <div>

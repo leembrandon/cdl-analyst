@@ -61,12 +61,12 @@ async function fetchStandings(eventId) {
 
 async function fetchPlayerMatchStats(playerId) {
   // Fetch per-series stats from match_stats_view (for Maps 1-3 Kills + Series K/D)
-  return mySupaFetch("match_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc&limit=30");
+  return mySupaFetch("match_stats_view", "select=*&player_id=eq." + playerId + "&event_is_cdl=eq.true&order=scheduled_at.desc&limit=30");
 }
 
 async function fetchPlayerMapStats(playerId) {
   // Fetch per-map stats from map_stats_view (for Map 1/2/3 individual lines)
-  return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&order=scheduled_at.desc,map_number.asc&limit=150");
+  return mySupaFetch("map_stats_view", "select=*&player_id=eq." + playerId + "&event_is_cdl=eq.true&order=scheduled_at.desc,map_number.asc&limit=150");
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────
@@ -810,13 +810,10 @@ function CDLLineCheck(props) {
         setLoading(true);
         var results = await Promise.all([
           fetchPlayerMapStats(player.player_id),
-          fetchPlayerMatchStats(player.player_id),
-          mySupaFetch("match_view", "select=id&event_is_cdl=eq.true")
+          fetchPlayerMatchStats(player.player_id)
         ]);
-        var cdlMatchIds = {};
-        (results[2] || []).forEach(function(m) { cdlMatchIds[m.id] = true; });
-        setMapLogs((results[0] || []).filter(function(r) { return cdlMatchIds[r.match_id]; }));
-        setSeriesLogs((results[1] || []).filter(function(r) { return cdlMatchIds[r.match_id]; }));
+        setMapLogs(results[0] || []);
+        setSeriesLogs(results[1] || []);
       } catch(e) { console.error(e); setMapLogs([]); setSeriesLogs([]); }
       finally { setLoading(false); }
     })();

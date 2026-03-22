@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react"; 
+import { Analytics } from "@vercel/analytics/react";
 
 const CURRENT_EVENT_ID = 102;
 
-// Data fetched through /api/supabase proxy — credentials stay server-side
 async function mySupaFetch(table, query) {
   var url = "/api/supabase?table=" + encodeURIComponent(table) + "&query=" + encodeURIComponent(query || "select=*");
   var res = await fetch(url);
@@ -1659,6 +1659,7 @@ export default function App() {
   var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major";
 
   return <div className="min-h-screen" style={{background: "#0d0d1a", color: "#c8c8d0"}}>
+    <Analytics />
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>

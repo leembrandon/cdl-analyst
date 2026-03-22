@@ -668,3 +668,213 @@ export function sharePicksImage(picks, shareUrl, eventName) {
     }
   });
 }
+
+// ─── RESULT CARD SHARE ──────────────────────────────────────
+
+/**
+ * Render a match result share image as a Canvas.
+ *
+ * data = {
+ *   home: {short, color, id}, away: {short, color, id},
+ *   homeScore, awayScore, homeWon, awayWon,
+ *   eventName,
+ *   maps: [{map_number, mode_short, mode_name, map_name, home_score, away_score, winner_id}],
+ *   homePlayers: [{name, kills, deaths, damage, kd}],
+ *   awayPlayers: [{name, kills, deaths, damage, kd}],
+ *   homeTeamTotals: {kills, deaths, damage, diff, kd} | null,
+ *   awayTeamTotals: {kills, deaths, damage, diff, kd} | null,
+ *   viewLabel: "Series" or "Map 1 — Hardpoint — Rewind"
+ * }
+ */
+export function renderResultCard(data) {
+  var headerH = 40;
+  var scoreH = 80;
+  var mapRowH = 26;
+  var mapHeaderH = 24;
+  var mapsH = data.maps && data.maps.length > 0 ? mapHeaderH + (data.maps.length * mapRowH) + 12 : 0;
+  var viewLabelH = data.viewLabel ? 32 : 0;
+  var playerRowH = 28;
+  var teamLabelH = 28;
+  var homePlayers = data.homePlayers || [];
+  var awayPlayers = data.awayPlayers || [];
+  var playerHeaderH = 24;
+  var totalRowH = data.homeTeamTotals ? 28 : 0;
+  var playersH = playerHeaderH + teamLabelH + (homePlayers.length * playerRowH) + totalRowH + 12 + teamLabelH + (awayPlayers.length * playerRowH) + totalRowH + 8;
+  var footerH = 36;
+  var cardHeight = headerH + scoreH + mapsH + viewLabelH + playersH + footerH;
+
+  var scale = 2;
+  var canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH * scale;
+  canvas.height = cardHeight * scale;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
+
+  var y = 0;
+  var mid = CARD_WIDTH / 2;
+  var homeColor = data.home.color || "#888";
+  var awayColor = data.away.color || "#888";
+
+  // --- Header ---
+  ctx.fillStyle = "rgba(233,69,96,0.08)";
+  ctx.fillRect(0, 0, CARD_WIDTH, headerH);
+  drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
+  drawText(ctx, data.eventName || "CDL 2026", CARD_WIDTH - CARD_PADDING, 15, {size: 10, weight: "400", color: TEXT_MUTED, align: "right"});
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
+  y = headerH;
+
+  // --- Series score ---
+  fillRoundedRect(ctx, CARD_PADDING, y + 20, 4, 40, 2, homeColor);
+  drawText(ctx, data.home.short || "?", CARD_PADDING + 16, y + 18, {size: 24, weight: "900", color: data.homeWon ? TEXT_WHITE : "#555555", align: "left"});
+
+  drawText(ctx, String(data.homeScore || 0), mid - 24, y + 14, {size: 36, weight: "900", color: data.homeWon ? TEXT_WHITE : "#555555", align: "right"});
+  drawText(ctx, "-", mid, y + 20, {size: 24, weight: "400", color: "rgba(255,255,255,0.2)", align: "center"});
+  drawText(ctx, String(data.awayScore || 0), mid + 24, y + 14, {size: 36, weight: "900", color: data.awayWon ? TEXT_WHITE : "#555555", align: "left"});
+
+  drawText(ctx, data.away.short || "?", CARD_WIDTH - CARD_PADDING - 16, y + 18, {size: 24, weight: "900", color: data.awayWon ? TEXT_WHITE : "#555555", align: "right"});
+  fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 4, y + 20, 4, 40, 2, awayColor);
+
+  drawText(ctx, "FINAL", mid, y + 62, {size: 9, weight: "700", color: GREEN, align: "center"});
+  y += scoreH;
+
+  // --- Map scores table ---
+  if (data.maps && data.maps.length > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 4;
+
+    drawText(ctx, "#", CARD_PADDING + 4, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "left"});
+    drawText(ctx, "MODE", CARD_PADDING + 32, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "left"});
+    drawText(ctx, "MAP", mid, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "left"});
+    drawText(ctx, data.home.short, CARD_WIDTH - CARD_PADDING - 60, y + 4, {size: 9, weight: "700", color: homeColor, align: "center"});
+    drawText(ctx, data.away.short, CARD_WIDTH - CARD_PADDING - 10, y + 4, {size: 9, weight: "700", color: awayColor, align: "center"});
+    y += mapHeaderH;
+
+    data.maps.forEach(function(m, i) {
+      if (i % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.02)";
+        ctx.fillRect(CARD_PADDING, y - 2, CARD_WIDTH - CARD_PADDING * 2, mapRowH);
+      }
+      var homeWonMap = m.winner_id === data.home.id;
+      drawText(ctx, String(m.map_number), CARD_PADDING + 8, y + 4, {size: 11, weight: "700", color: TEXT_DIM, align: "left"});
+      drawText(ctx, m.mode_short || "", CARD_PADDING + 32, y + 4, {size: 11, weight: "600", color: "#888888", align: "left"});
+      drawText(ctx, m.map_name || "", mid, y + 4, {size: 11, weight: "400", color: "#666666", align: "left"});
+      drawText(ctx, String(m.home_score), CARD_WIDTH - CARD_PADDING - 60, y + 4, {size: 12, weight: "700", color: homeWonMap ? GREEN : "#555555", align: "center"});
+      drawText(ctx, String(m.away_score), CARD_WIDTH - CARD_PADDING - 10, y + 4, {size: 12, weight: "700", color: !homeWonMap ? GREEN : "#555555", align: "center"});
+      y += mapRowH;
+    });
+    y += 8;
+  }
+
+  // --- View label (Series / Map X) ---
+  if (data.viewLabel) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 2;
+    drawText(ctx, data.viewLabel.toUpperCase(), CARD_PADDING, y + 8, {size: 9, weight: "700", color: ACCENT, align: "left"});
+    y += viewLabelH;
+  }
+
+  // --- Player stats columns ---
+  var colPlayer = CARD_PADDING + 4;
+  var colK = CARD_WIDTH - CARD_PADDING - 200;
+  var colD = CARD_WIDTH - CARD_PADDING - 156;
+  var colKD = CARD_WIDTH - CARD_PADDING - 108;
+  var colDmg = CARD_WIDTH - CARD_PADDING - 52;
+  var colDiff = CARD_WIDTH - CARD_PADDING - 4;
+
+  drawText(ctx, "PLAYER", colPlayer, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "left"});
+  drawText(ctx, "K", colK, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "center"});
+  drawText(ctx, "D", colD, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "center"});
+  drawText(ctx, "K/D", colKD, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "center"});
+  drawText(ctx, "DMG", colDmg, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "center"});
+  drawText(ctx, "+/-", colDiff, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "right"});
+  y += playerHeaderH;
+
+  // Helper to render one team block
+  var renderTeamBlock = function(players, teamShort, teamColor, totals) {
+    fillRoundedRect(ctx, CARD_PADDING + 4, y + 6, 3, 14, 1, teamColor);
+    drawText(ctx, teamShort, CARD_PADDING + 14, y + 6, {size: 10, weight: "800", color: teamColor, align: "left"});
+    y += teamLabelH;
+
+    players.forEach(function(p, i) {
+      if (i % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.015)";
+        ctx.fillRect(CARD_PADDING, y - 2, CARD_WIDTH - CARD_PADDING * 2, playerRowH);
+      }
+      var diff = p.kills - p.deaths;
+      drawText(ctx, p.name || "?", colPlayer, y + 4, {size: 11, weight: "600", color: teamColor, align: "left"});
+      drawText(ctx, String(p.kills), colK, y + 4, {size: 11, weight: "700", color: TEXT_WHITE, align: "center"});
+      drawText(ctx, String(p.deaths), colD, y + 4, {size: 11, weight: "400", color: "#888888", align: "center"});
+      drawText(ctx, p.kd.toFixed(2), colKD, y + 4, {size: 11, weight: "700", color: kdColor(p.kd), align: "center"});
+      drawText(ctx, Math.round(p.damage).toLocaleString(), colDmg, y + 4, {size: 11, weight: "400", color: "#888888", align: "center"});
+      drawText(ctx, (diff >= 0 ? "+" : "") + diff, colDiff, y + 4, {size: 11, weight: "700", color: diff >= 0 ? GREEN : RED, align: "right"});
+      y += playerRowH;
+    });
+
+    if (totals) {
+      ctx.fillStyle = "rgba(255,255,255,0.04)";
+      ctx.fillRect(CARD_PADDING, y - 2, CARD_WIDTH - CARD_PADDING * 2, totalRowH);
+      var tDiff = totals.diff || 0;
+      drawText(ctx, "TOTAL", colPlayer, y + 4, {size: 10, weight: "700", color: teamColor, align: "left"});
+      drawText(ctx, String(totals.kills), colK, y + 4, {size: 11, weight: "700", color: TEXT_WHITE, align: "center"});
+      drawText(ctx, String(totals.deaths), colD, y + 4, {size: 11, weight: "400", color: "#888888", align: "center"});
+      drawText(ctx, totals.kd.toFixed(2), colKD, y + 4, {size: 11, weight: "700", color: kdColor(totals.kd), align: "center"});
+      drawText(ctx, Math.round(totals.damage).toLocaleString(), colDmg, y + 4, {size: 11, weight: "400", color: "#888888", align: "center"});
+      drawText(ctx, (tDiff >= 0 ? "+" : "") + tDiff, colDiff, y + 4, {size: 11, weight: "700", color: tDiff >= 0 ? GREEN : RED, align: "right"});
+      y += totalRowH;
+    }
+  };
+
+  renderTeamBlock(homePlayers, data.home.short, homeColor, data.homeTeamTotals);
+  y += 12;
+  renderTeamBlock(awayPlayers, data.away.short, awayColor, data.awayTeamTotals);
+  y += 8;
+
+  // --- Footer ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, y, CARD_WIDTH, 1);
+  y += 1;
+  drawText(ctx, "thebarracks.vercel.app", mid, y + 10, {size: 9, weight: "400", color: "rgba(255,255,255,0.25)", align: "center"});
+
+  return canvas;
+}
+
+/**
+ * Share or download a result card image.
+ */
+export function shareResultImage(data, shareUrl) {
+  return new Promise(function(resolve, reject) {
+    try {
+      var canvas = renderResultCard(data);
+      var filename = "barracks-" + (data.home.short || "home") + "-vs-" + (data.away.short || "away");
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          reject(new Error("Failed to generate image"));
+          return;
+        }
+        var file = new File([blob], filename + ".png", {type: "image/png"});
+        var title = (data.home.short || "?") + " vs " + (data.away.short || "?") + " — Barracks CDL Results";
+        if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+          navigator.share({
+            files: [file],
+            title: title,
+            url: shareUrl || undefined
+          }).then(resolve).catch(resolve);
+        } else {
+          var link = document.createElement("a");
+          link.download = filename + ".png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          resolve();
+        }
+      }, "image/png");
+    } catch (e) {
+      reject(e);
+    }
+  });
+}

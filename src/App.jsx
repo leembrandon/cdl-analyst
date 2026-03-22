@@ -1208,7 +1208,7 @@ function CDLLinesTab(props) {
         </div>
       </div>
 
-      <CDLLineCheck player={selectedPlayer} initialParams={initialLineParams} />
+      <CDLLineCheck key={selectedPlayer.player_id} player={selectedPlayer} initialParams={initialLineParams} />
     </div>}
   </div>;
 }

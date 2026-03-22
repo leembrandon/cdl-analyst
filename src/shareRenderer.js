@@ -538,7 +538,7 @@ export function shareLineCard(data, shareUrl) {
  *   score, eventShort, datetime
  * }]
  */
-export function renderPicksCard(picks) {
+export function renderPicksCard(picks, eventName) {
   var ROW_H = 56;
   var headerH = 40;
   var titleH = 64;
@@ -568,8 +568,9 @@ export function renderPicksCard(picks) {
   ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
   y = headerH;
 
-  // --- Title area ---
-  drawText(ctx, "MY PICKS", mid, y + 14, {size: 22, weight: "900", color: TEXT_WHITE, align: "center"});
+  // --- Title area — use event name ---
+  var titleText = eventName || "PICKS";
+  drawText(ctx, titleText.toUpperCase(), mid, y + 14, {size: 22, weight: "900", color: TEXT_WHITE, align: "center"});
   drawText(ctx, numPicks + " match" + (numPicks !== 1 ? "es" : "") + " predicted", mid, y + 42, {size: 11, weight: "400", color: TEXT_DIM, align: "center"});
   y += titleH;
 
@@ -636,25 +637,27 @@ export function renderPicksCard(picks) {
 /**
  * Share or download a picks card image.
  */
-export function sharePicksImage(picks, shareUrl) {
+export function sharePicksImage(picks, shareUrl, eventName) {
   return new Promise(function(resolve, reject) {
     try {
-      var canvas = renderPicksCard(picks);
+      var canvas = renderPicksCard(picks, eventName);
+      var filename = "barracks-picks" + (eventName ? "-" + eventName.replace(/\s+/g, "-").toLowerCase() : "");
       canvas.toBlob(function(blob) {
         if (!blob) {
           reject(new Error("Failed to generate image"));
           return;
         }
-        var file = new File([blob], "barracks-picks.png", {type: "image/png"});
+        var file = new File([blob], filename + ".png", {type: "image/png"});
+        var title = (eventName || "My CDL") + " Picks — Barracks";
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],
-            title: "My CDL Picks — Barracks",
+            title: title,
             url: shareUrl || undefined
           }).then(resolve).catch(resolve);
         } else {
           var link = document.createElement("a");
-          link.download = "barracks-picks.png";
+          link.download = filename + ".png";
           link.href = canvas.toDataURL("image/png");
           link.click();
           resolve();

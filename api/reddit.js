@@ -103,10 +103,16 @@ export default async function handler(req, res) {
         .replace(/&gt;/g, ">")
         .replace(/&#39;/g, "'")
         .replace(/&quot;/g, '"')
+        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        // Strip Reddit boilerplate
+        .replace(/\[link\]/gi, "")
+        .replace(/\[comments\]/gi, "")
+        .replace(/submitted\s+by\s+\/u\/\S+/gi, "")
         .replace(/\s+/g, " ")
         .trim();
-      // Skip previews that are just "[link]" or "[comments]" or too short
-      if (preview.length < 10 || /^\[link\]/.test(preview)) preview = "";
+      // Skip previews that are too short after cleanup
+      if (preview.length < 15) preview = "";
       preview = preview.slice(0, 300);
 
       entries.push({

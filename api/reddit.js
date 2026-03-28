@@ -77,19 +77,36 @@ export default async function handler(req, res) {
       const id = get("id");
       const category = getAttr("category", "term");
 
-      // Try to extract a thumbnail from the content HTML
+      // Try to extract a thumbnail
       let thumbnail = "";
-      // Decode HTML entities first so we can find real img tags
+
+      // 1. Check for media:thumbnail in the raw entry (most reliable)
+      const mediaThumbMatch = entry.match(/<media:thumbnail[^>]+url="([^"]+)"/);
+      if (mediaThumbMatch) {
+        thumbnail = mediaThumbMatch[1].replace(/&amp;/g, "&");
+      }
+
+      // 2. Fallback: find img src in decoded content
+      if (!thumbnail) {
+        const decodedContent = content
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&amp;/g, "&")
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"');
+        const imgMatch = decodedContent.match(/<img[^>]+src="([^"]+)"/);
+        if (imgMatch) {
+          thumbnail = imgMatch[1].replace(/&amp;/g, "&");
+        }
+      }
+
+      // Decode content for preview extraction
       const decodedContent = content
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&amp;/g, "&")
         .replace(/&#39;/g, "'")
         .replace(/&quot;/g, '"');
-      const imgMatch = decodedContent.match(/<img[^>]+src="([^"]+)"/);
-      if (imgMatch) {
-        thumbnail = imgMatch[1];
-      }
 
       // Extract a text preview from content — decode entities, strip all HTML, clean up
       let preview = decodedContent

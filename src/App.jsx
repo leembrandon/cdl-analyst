@@ -2115,44 +2115,106 @@ async function fetchRedditFeed(sub, sort) {
   return res.json();
 }
 
-function timeAgo(dateStr) {
-  var d = new Date(dateStr);
-  var now = new Date();
-  var diff = Math.floor((now - d) / 1000);
+function feedTimeAgo(utc) {
+  var diff = Math.floor(Date.now() / 1000 - utc);
   if (diff < 60) return "just now";
-  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-  if (diff < 604800) return Math.floor(diff / 86400) + "d ago";
-  return d.toLocaleDateString("en-US", {month: "short", day: "numeric"});
+  if (diff < 3600) return Math.floor(diff / 60) + "m";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h";
+  if (diff < 604800) return Math.floor(diff / 86400) + "d";
+  return new Date(utc * 1000).toLocaleDateString("en-US", {month: "short", day: "numeric"});
+}
+
+function formatScore(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return n;
+}
+
+function PostTypeIcon(props) {
+  var hint = props.hint; var isVideo = props.isVideo; var isSelf = props.isSelf;
+  if (isVideo || hint === "hosted:video" || hint === "rich:video") return <svg width="14" height="14" viewBox="0 0 24 24" fill="#e94560" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+  if (hint === "image") return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52b788" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>;
+  if (hint === "link") return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffd166" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>;
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
 }
 
 function FeedCard(props) {
   var post = props.post;
-  var hasThumb = post.thumbnail && post.thumbnail.indexOf("http") === 0 && post.thumbnail.indexOf("reddit.com/awards") === -1;
+  var [expanded, setExpanded] = useState(false);
+  var hasThumb = post.thumbnail && post.thumbnail.indexOf("http") === 0;
   var [thumbFailed, setThumbFailed] = useState(false);
   var showThumb = hasThumb && !thumbFailed;
+  var hasPreview = post.preview && post.preview.length > 0;
 
-  return <a href={post.link} target="_blank" rel="noopener noreferrer" className="block rounded-xl p-4 transition-all" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}} onMouseEnter={function(e) { e.currentTarget.style.background = "rgba(233,69,96,0.06)"; e.currentTarget.style.borderColor = "rgba(233,69,96,0.2)"; }} onMouseLeave={function(e) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}>
-    <div className="flex gap-3">
-      {showThumb ? <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.05)"}}>
+  var handleExpand = function(e) {
+    if (hasPreview) {
+      e.preventDefault();
+      e.stopPropagation();
+      setExpanded(!expanded);
+    }
+  };
+
+  var flairColors = {
+    "Video": {bg: "rgba(233,69,96,0.12)", color: "#e94560"},
+    "CDL - Discussion": {bg: "rgba(82,183,136,0.12)", color: "#52b788"},
+    "CDL - Official Thread": {bg: "rgba(255,209,102,0.12)", color: "#ffd166"},
+    "Post-Match Thread": {bg: "rgba(163,190,140,0.12)", color: "#a3be8c"},
+    "Weekly": {bg: "rgba(255,255,255,0.06)", color: "#888"},
+  };
+  var flairStyle = flairColors[post.flair] || {bg: "rgba(233,69,96,0.08)", color: "#e94560"};
+
+  return <div className="rounded-xl overflow-hidden transition-all" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
+    <div className="flex gap-3 p-4">
+      {/* Upvote column */}
+      <div className="flex-shrink-0 flex flex-col items-center gap-0.5 pt-0.5" style={{minWidth: "32px"}}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={post.score > 0 ? "#e94560" : "#555"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        <span className="text-xs font-bold" style={{color: post.score > 0 ? "#e94560" : "#555", fontSize: "11px"}}>{formatScore(post.score)}</span>
+      </div>
+
+      {/* Thumbnail */}
+      {showThumb ? <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden relative" style={{background: "rgba(255,255,255,0.05)"}}>
         <img src={post.thumbnail} alt="" className="w-full h-full object-cover" onError={function() { setThumbFailed(true); }} />
-      </div> : <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{background: "rgba(233,69,96,0.08)"}}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        {(post.isVideo || post.postHint === "hosted:video") && <div className="absolute inset-0 flex items-center justify-center" style={{background: "rgba(0,0,0,0.4)"}}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="8 5 19 12 8 19 8 5"/></svg>
+        </div>}
+      </div> : <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{background: "rgba(255,255,255,0.04)"}}>
+        <PostTypeIcon hint={post.postHint} isVideo={post.isVideo} isSelf={post.isSelf} />
       </div>}
+
+      {/* Content */}
       <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-bold text-white leading-snug mb-1" style={{display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"}}>{post.title}</h3>
-        {post.preview && <p className="text-xs leading-relaxed mb-2" style={{color: "#777", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"}}>{post.preview}</p>}
+        <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="block">
+          <h3 className="text-sm font-bold text-white leading-snug mb-1 hover:underline" style={{display: "-webkit-box", WebkitLineClamp: expanded ? 99 : 2, WebkitBoxOrient: "vertical", overflow: "hidden"}}>{post.stickied && <span style={{color: "#52b788", marginRight: "6px"}}>📌</span>}{post.title}</h3>
+        </a>
+
+        {/* Expandable preview */}
+        {hasPreview && <div onClick={handleExpand} className="cursor-pointer">
+          <p className="text-xs leading-relaxed mb-2" style={{color: "#777", display: "-webkit-box", WebkitLineClamp: expanded ? 99 : 2, WebkitBoxOrient: "vertical", overflow: expanded ? "visible" : "hidden"}}>{post.preview}</p>
+        </div>}
+
+        {/* Meta row */}
         <div className="flex items-center gap-2 flex-wrap">
-          {post.category && <span className="text-xs font-semibold px-1.5 py-0.5 rounded" style={{background: "rgba(233,69,96,0.12)", color: "#e94560", fontSize: "10px"}}>{post.category}</span>}
+          {post.flair && <span className="font-semibold px-1.5 py-0.5 rounded" style={{background: flairStyle.bg, color: flairStyle.color, fontSize: "10px"}}>{post.flair}</span>}
           <span style={{fontSize: "10px", color: "#555"}}>u/{post.author}</span>
-          <span style={{fontSize: "10px", color: "#444"}}>{timeAgo(post.updated)}</span>
+          <span style={{fontSize: "10px", color: "#444"}}>{feedTimeAgo(post.createdUtc)}</span>
+          {/* Comments */}
+          <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:opacity-100" style={{opacity: 0.6}}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span style={{fontSize: "10px", color: "#888"}}>{formatScore(post.numComments)}</span>
+          </a>
         </div>
       </div>
-      <div className="flex-shrink-0 self-center opacity-30">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+
+      {/* Expand / external link */}
+      <div className="flex-shrink-0 flex flex-col items-center gap-2 self-center">
+        {hasPreview && <button onClick={handleExpand} className="opacity-30 hover:opacity-70 transition-opacity" title={expanded ? "Collapse" : "Expand"}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s"}}><polyline points="6 9 12 15 18 9"/></svg>
+        </button>}
+        <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="opacity-30 hover:opacity-70 transition-opacity">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
       </div>
     </div>
-  </a>;
+  </div>;
 }
 
 function FeedTab() {
@@ -2161,6 +2223,7 @@ function FeedTab() {
   var [posts, setPosts] = useState([]);
   var [feedLoading, setFeedLoading] = useState(true);
   var [feedError, setFeedError] = useState(null);
+  var [retryKey, setRetryKey] = useState(0);
 
   useEffect(function() {
     var cancelled = false;
@@ -2178,7 +2241,7 @@ function FeedTab() {
       }
     });
     return function() { cancelled = true; };
-  }, [activeSub, activeSort]);
+  }, [activeSub, activeSort, retryKey]);
 
   return <div>
     <div className="mb-4">
@@ -2220,7 +2283,7 @@ function FeedTab() {
     {feedError && <div className="rounded-xl p-4 text-center" style={{background: "rgba(233,69,96,0.08)", border: "1px solid rgba(233,69,96,0.2)"}}>
       <p className="text-sm font-bold mb-1" style={{color: "#e94560"}}>Failed to load feed</p>
       <p className="text-xs" style={{color: "#777"}}>{feedError}</p>
-      <button onClick={function() { setActiveSort(activeSort); }} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button>
+      <button onClick={function() { setRetryKey(retryKey + 1); }} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button>
     </div>}
 
     {!feedLoading && !feedError && posts.length === 0 && <div className="text-center py-12 opacity-30">

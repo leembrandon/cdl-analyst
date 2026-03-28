@@ -2126,18 +2126,6 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString("en-US", {month: "short", day: "numeric"});
 }
 
-function proxyThumb(url) {
-  if (!url) return "";
-  // Route Reddit preview images through our proxy to avoid CORS blocks
-  try {
-    var host = new URL(url).hostname;
-    if (host.indexOf("redd.it") !== -1 || host.indexOf("redditmedia.com") !== -1) {
-      return "/api/reddit-image?url=" + encodeURIComponent(url);
-    }
-  } catch(e) {}
-  return url;
-}
-
 function FeedCard(props) {
   var post = props.post;
   var hasThumb = post.thumbnail && post.thumbnail.indexOf("http") === 0 && post.thumbnail.indexOf("reddit.com/awards") === -1;
@@ -2147,7 +2135,7 @@ function FeedCard(props) {
   return <a href={post.link} target="_blank" rel="noopener noreferrer" className="block rounded-xl p-4 transition-all" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}} onMouseEnter={function(e) { e.currentTarget.style.background = "rgba(233,69,96,0.06)"; e.currentTarget.style.borderColor = "rgba(233,69,96,0.2)"; }} onMouseLeave={function(e) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}>
     <div className="flex gap-3">
       {showThumb ? <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.05)"}}>
-        <img src={proxyThumb(post.thumbnail)} alt="" className="w-full h-full object-cover" onError={function() { setThumbFailed(true); }} />
+        <img src={post.thumbnail} alt="" className="w-full h-full object-cover" onError={function() { setThumbFailed(true); }} />
       </div> : <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{background: "rgba(233,69,96,0.08)"}}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </div>}

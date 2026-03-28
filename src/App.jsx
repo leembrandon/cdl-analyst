@@ -2242,7 +2242,7 @@ function FeedTab() {
 
 // ─── MAIN APP ────────────────────────────────────────────────
 
-var TABS = ["Schedule", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Feed", "Search"];
+var TABS = ["Schedule", "Feed", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);

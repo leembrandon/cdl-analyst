@@ -888,3 +888,232 @@ export function shareResultImage(data, shareUrl) {
     }
   });
 }
+
+// ─── PLAYER STAT CARD SHARE ─────────────────────────────────
+// Add this to the END of your existing shareRenderer.js file.
+//
+// Generates a clean, shareable player stat card image
+// designed to look great when shared on Twitter, Discord, etc.
+
+/**
+ * Render a player stat card as a Canvas image.
+ *
+ * p = player object from leaderboard with all stat fields
+ */
+export function renderStatCard(p) {
+  var CARD_WIDTH = 720;
+  var CARD_PADDING = 32;
+  var SURFACE_COLOR = "#111128";
+  var ACCENT = "#e94560";
+  var TEXT_WHITE = "#ffffff";
+  var TEXT_DIM = "#555555";
+  var TEXT_MUTED = "#444444";
+  var GREEN = "#52b788";
+  var RED = "#ff6b6b";
+  var YELLOW = "#ffd166";
+
+  function kdColor(kd) {
+    if (kd >= 1.05) return GREEN;
+    if (kd >= 1.0) return "#a3be8c";
+    if (kd >= 0.95) return YELLOW;
+    return RED;
+  }
+
+  function fillRoundedRect(ctx, x, y, w, h, r, color) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function drawText(ctx, text, x, y, opts) {
+    var size = opts.size || 14;
+    var weight = opts.weight || "400";
+    var color = opts.color || TEXT_WHITE;
+    var align = opts.align || "left";
+    ctx.font = weight + " " + size + "px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = opts.baseline || "top";
+    ctx.fillText(text, x, y);
+  }
+
+  function s(obj, key, def) {
+    if (def === undefined) def = 0;
+    return (obj && obj[key] != null) ? obj[key] : def;
+  }
+
+  // Card layout
+  var headerH = 40;
+  var heroH = 100;
+  var overallH = 60;
+  var modeH = 3 * 36; // 3 modes, 36px each
+  var modeHeaderH = 28;
+  var footerH = 36;
+  var cardHeight = headerH + heroH + overallH + modeHeaderH + modeH + modeHeaderH + modeH + modeHeaderH + modeH + footerH + 24;
+
+  // Recalculate — simpler approach
+  var ROW_H = 30;
+  var SECTION_HEADER_H = 28;
+  var statRowsPerSection = 1; // one row of stats per mode
+  cardHeight = headerH + heroH + overallH + (3 * (SECTION_HEADER_H + 52)) + footerH + 16;
+
+  var scale = 2;
+  var canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH * scale;
+  canvas.height = cardHeight * scale;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  // Background
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
+
+  var y = 0;
+  var mid = CARD_WIDTH / 2;
+
+  // --- Header ---
+  ctx.fillStyle = "rgba(233,69,96,0.08)";
+  ctx.fillRect(0, 0, CARD_WIDTH, headerH);
+  drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
+  drawText(ctx, "CDL 2026 · PLAYER CARD", CARD_WIDTH - CARD_PADDING, 15, {size: 10, weight: "400", color: TEXT_MUTED, align: "right"});
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
+  y = headerH;
+
+  // --- Hero section: player name + team + big KD ---
+  var teamColor = p.team_color || "#888";
+  fillRoundedRect(ctx, CARD_PADDING, y + 16, 5, 60, 3, teamColor);
+
+  var gamertag = p.gamertag || p.player_tag || "?";
+  drawText(ctx, gamertag.toUpperCase(), CARD_PADDING + 18, y + 14, {size: 28, weight: "900", color: TEXT_WHITE, align: "left"});
+
+  var roleText = (p.role || "") + (p.role && (p.team_abbr || p.team_short) ? " · " : "") + (p.team_name || p.team_abbr || p.team_short || "");
+  drawText(ctx, roleText, CARD_PADDING + 18, y + 48, {size: 12, weight: "400", color: TEXT_DIM, align: "left"});
+
+  var matches = s(p, "matches_played");
+  drawText(ctx, matches + " matches played", CARD_PADDING + 18, y + 66, {size: 10, weight: "400", color: TEXT_MUTED, align: "left"});
+
+  // Big KD on the right
+  var kd = s(p, "kd");
+  drawText(ctx, kd.toFixed(2), CARD_WIDTH - CARD_PADDING, y + 18, {size: 48, weight: "900", color: kdColor(kd), align: "right"});
+  drawText(ctx, "OVERALL K/D", CARD_WIDTH - CARD_PADDING, y + 72, {size: 9, weight: "700", color: TEXT_DIM, align: "right"});
+
+  y += heroH;
+
+  // --- Overall stat row ---
+  ctx.fillStyle = "rgba(255,255,255,0.04)";
+  ctx.fillRect(0, y, CARD_WIDTH, overallH);
+
+  var overallStats = [
+    {label: "K/D", value: s(p, "kd").toFixed(2), color: kdColor(s(p, "kd"))},
+    {label: "DMG/10m", value: s(p, "dmg_per_10m").toFixed(1), color: "#aaa"},
+    {label: "FB%", value: (s(p, "first_blood_pct") * 100).toFixed(1) + "%", color: "#aaa"},
+    {label: "MATCHES", value: String(matches), color: "#aaa"}
+  ];
+  var colW = (CARD_WIDTH - CARD_PADDING * 2) / overallStats.length;
+  overallStats.forEach(function(stat, i) {
+    var cx = CARD_PADDING + colW * i + colW / 2;
+    drawText(ctx, stat.label, cx, y + 12, {size: 9, weight: "700", color: TEXT_DIM, align: "center"});
+    drawText(ctx, stat.value, cx, y + 28, {size: 18, weight: "800", color: stat.color, align: "center"});
+  });
+
+  y += overallH;
+
+  // --- Mode sections ---
+  var modes = [
+    {name: "HARDPOINT", stats: [
+      {label: "K/D", value: s(p, "hp_kd").toFixed(2), color: kdColor(s(p, "hp_kd"))},
+      {label: "K/10", value: s(p, "hp_kills_per_10m").toFixed(1), color: "#aaa"},
+      {label: "D/10", value: s(p, "hp_deaths_per_10m").toFixed(1), color: "#aaa"},
+      {label: "DMG/10", value: s(p, "hp_damage_per_10m").toFixed(1), color: "#aaa"},
+      {label: "ENG/10", value: s(p, "hp_engagements_10m").toFixed(1), color: "#aaa"}
+    ]},
+    {name: "SEARCH & DESTROY", stats: [
+      {label: "K/D", value: s(p, "snd_kd").toFixed(2), color: kdColor(s(p, "snd_kd"))},
+      {label: "KPR", value: s(p, "snd_kills_per_round").toFixed(2), color: "#aaa"},
+      {label: "DPR", value: s(p, "snd_deaths_per_round").toFixed(2), color: "#aaa"},
+      {label: "FB%", value: (s(p, "first_blood_pct") * 100).toFixed(1) + "%", color: "#aaa"},
+      {label: "", value: "", color: "transparent"}
+    ]},
+    {name: "OVERLOAD", stats: [
+      {label: "K/D", value: s(p, "ovl_kd").toFixed(2), color: kdColor(s(p, "ovl_kd"))},
+      {label: "K/10", value: s(p, "ovl_kills_per_10m").toFixed(1), color: "#aaa"},
+      {label: "D/10", value: s(p, "ovl_deaths_per_10m").toFixed(1), color: "#aaa"},
+      {label: "DMG/10", value: s(p, "ovl_damage_per_10m").toFixed(1), color: "#aaa"},
+      {label: "ENG/10", value: s(p, "ovl_engagements_10m").toFixed(1), color: "#aaa"}
+    ]}
+  ];
+
+  modes.forEach(function(mode) {
+    // Section header
+    drawText(ctx, mode.name, CARD_PADDING, y + 10, {size: 9, weight: "700", color: ACCENT, align: "left"});
+    y += SECTION_HEADER_H;
+
+    // Stat columns
+    var mColW = (CARD_WIDTH - CARD_PADDING * 2) / 5;
+    mode.stats.forEach(function(stat, i) {
+      if (!stat.label) return;
+      var cx = CARD_PADDING + mColW * i + mColW / 2;
+      drawText(ctx, stat.label, cx, y + 4, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
+      drawText(ctx, stat.value, cx, y + 20, {size: 16, weight: "700", color: stat.color, align: "center"});
+    });
+    y += 52;
+  });
+
+  y += 8;
+
+  // --- Footer ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, y, CARD_WIDTH, 1);
+  y += 1;
+
+  drawText(ctx, "thebarracks.vercel.app", mid, y + 10, {size: 9, weight: "400", color: "rgba(255,255,255,0.25)", align: "center"});
+  drawText(ctx, gamertag + " — CDL 2026", CARD_WIDTH - CARD_PADDING, y + 10, {size: 9, weight: "400", color: TEXT_MUTED, align: "right"});
+
+  return canvas;
+}
+
+/**
+ * Share or download a player stat card image.
+ */
+export function shareStatCard(player, shareUrl) {
+  return new Promise(function(resolve, reject) {
+    try {
+      var canvas = renderStatCard(player);
+      var name = player.gamertag || player.player_tag || "player";
+      var filename = "barracks-" + name.replace(/\s+/g, "-") + "-stats";
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          reject(new Error("Failed to generate image"));
+          return;
+        }
+        var file = new File([blob], filename + ".png", {type: "image/png"});
+        if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+          navigator.share({
+            files: [file],
+            title: name + " CDL 2026 Stats — Barracks",
+            url: shareUrl || undefined
+          }).then(resolve).catch(resolve);
+        } else {
+          var link = document.createElement("a");
+          link.download = filename + ".png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          resolve();
+        }
+      }, "image/png");
+    } catch (e) {
+      reject(e);
+    }
+  });
+}

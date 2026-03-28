@@ -79,23 +79,35 @@ export default async function handler(req, res) {
 
       // Try to extract a thumbnail from the content HTML
       let thumbnail = "";
-      const imgMatch = content.match(/<img[^>]+src="([^"]+)"/);
+      // Decode HTML entities first so we can find real img tags
+      const decodedContent = content
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"');
+      const imgMatch = decodedContent.match(/<img[^>]+src="([^"]+)"/);
       if (imgMatch) {
-        thumbnail = imgMatch[1]
-          .replace(/&amp;/g, "&");
+        thumbnail = imgMatch[1];
       }
 
-      // Extract a text preview from content (strip HTML)
-      let preview = content
+      // Extract a text preview from content — decode entities, strip all HTML, clean up
+      let preview = decodedContent
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<!--[\s\S]*?-->/g, "")
         .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
         .replace(/&amp;/g, "&")
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&#39;/g, "'")
         .replace(/&quot;/g, '"')
         .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 300);
+        .trim();
+      // Skip previews that are just "[link]" or "[comments]" or too short
+      if (preview.length < 10 || /^\[link\]/.test(preview)) preview = "";
+      preview = preview.slice(0, 300);
 
       entries.push({
         id,

@@ -1,14 +1,12 @@
-// /api/reddit.js — Vercel serverless function to proxy Reddit RSS feeds
-// Avoids CORS issues by fetching server-side and returning parsed JSON.
+// /api/reddit.js — Vercel serverless function to proxy Reddit JSON API
+// Returns rich post data including scores, comments, flairs, and images.
 
 export default async function handler(req, res) {
-  // Allowed subreddits — whitelist to prevent abuse
   const ALLOWED_SUBS = ["CoDCompetitive", "CallOfDuty"];
-  const DEFAULT_SORT = "hot";
   const ALLOWED_SORTS = ["hot", "new", "top", "rising"];
 
   const sub = req.query.sub || "CoDCompetitive";
-  const sort = req.query.sort || DEFAULT_SORT;
+  const sort = req.query.sort || "hot";
   const limit = Math.min(parseInt(req.query.limit) || 25, 50);
 
   if (!ALLOWED_SUBS.includes(sub)) {
@@ -18,13 +16,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid sort" });
   }
 
-  const url = `https://www.reddit.com/r/${sub}/${sort}.rss?limit=${limit}`;
+  const url = `https://www.reddit.com/r/${sub}/${sort}.json?limit=${limit}&raw_json=1`;
 
   try {
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Barracks-CDL-App/1.0",
-        Accept: "application/rss+xml, application/xml, text/xml",
+        Accept: "application/json",
       },
     });
 
@@ -34,117 +32,56 @@ export default async function handler(req, res) {
         .json({ error: "Reddit returned " + response.status });
     }
 
-    const xml = await response.text();
+    const data = await response.json();
+    const entries = (data.data?.children || []).map((child) => {
+      const p = child.data;
 
-    // Parse Atom feed (Reddit returns Atom, not RSS)
-    const entries = [];
-    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-    let match;
-
-    while ((match = entryRegex.exec(xml)) !== null) {
-      const entry = match[1];
-      const get = (tag) => {
-        const m = entry.match(
-          new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`)
-        );
-        if (m) return m[1];
-        const m2 = entry.match(
-          new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`)
-        );
-        return m2 ? m2[1] : "";
-      };
-
-      const getAttr = (tag, attr) => {
-        const m = entry.match(new RegExp(`<${tag}[^>]*${attr}="([^"]*)"[^>]*/>`));
-        if (m) return m[1];
-        const m2 = entry.match(
-          new RegExp(`<${tag}[^>]*${attr}="([^"]*)"[^>]*>`)
-        );
-        return m2 ? m2[1] : "";
-      };
-
-      const title = get("title")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"');
-
-      const content = get("content");
-      const link = getAttr("link", "href");
-      const updated = get("updated");
-      const author = get("name");
-      const id = get("id");
-      const category = getAttr("category", "term");
-
-      // Try to extract a thumbnail
+      // Get the best available image URL
       let thumbnail = "";
-
-      // 1. Check for media:thumbnail in the raw entry (most reliable)
-      const mediaThumbMatch = entry.match(/<media:thumbnail[^>]+url="([^"]+)"/);
-      if (mediaThumbMatch) {
-        thumbnail = mediaThumbMatch[1].replace(/&amp;/g, "&");
+      // 1. Try preview image (highest quality, already decoded with raw_json=1)
+      const previewImg = p.preview?.images?.[0]?.source?.url || "";
+      if (previewImg) {
+        thumbnail = previewImg;
+      }
+      // 2. Fallback to thumbnail if it's a real URL
+      else if (p.thumbnail && p.thumbnail.startsWith("http")) {
+        thumbnail = p.thumbnail.replace(/&amp;/g, "&");
       }
 
-      // 2. Fallback: find img src in decoded content
-      if (!thumbnail) {
-        const decodedContent = content
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&amp;/g, "&")
-          .replace(/&#39;/g, "'")
-          .replace(/&quot;/g, '"');
-        const imgMatch = decodedContent.match(/<img[^>]+src="([^"]+)"/);
-        if (imgMatch) {
-          thumbnail = imgMatch[1].replace(/&amp;/g, "&");
-        }
-      }
-
-      // Decode content for preview extraction
-      const decodedContent = content
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"');
-
-      // Extract a text preview from content — decode entities, strip all HTML, clean up
-      let preview = decodedContent
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-        .replace(/<!--[\s\S]*?-->/g, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"')
-        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
-        .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-        // Strip Reddit boilerplate
-        .replace(/\[link\]/gi, "")
-        .replace(/\[comments\]/gi, "")
-        .replace(/submitted\s+by\s+\/u\/\S+/gi, "")
+      // Clean selftext preview
+      let preview = (p.selftext || "").replace(/\n+/g, " ").trim();
+      if (preview.length > 300) preview = preview.slice(0, 300) + "...";
+      // Strip markdown formatting for cleaner preview
+      preview = preview
+        .replace(/#{1,6}\s/g, "")
+        .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/\|/g, " ")
+        .replace(/-{3,}/g, "")
         .replace(/\s+/g, " ")
         .trim();
-      // Skip previews that are too short after cleanup
-      if (preview.length < 15) preview = "";
-      preview = preview.slice(0, 300);
+      if (preview.length < 10) preview = "";
 
-      entries.push({
-        id,
-        title,
-        link,
-        updated,
-        author,
-        category,
-        thumbnail,
+      return {
+        id: p.id,
+        title: p.title,
+        author: p.author,
+        score: p.score,
+        upvoteRatio: p.upvote_ratio,
+        numComments: p.num_comments,
+        url: p.url,
+        permalink: "https://www.reddit.com" + p.permalink,
         preview,
-      });
-    }
+        flair: p.link_flair_text || "",
+        createdUtc: p.created_utc,
+        isSelf: p.is_self,
+        thumbnail,
+        postHint: p.post_hint || "",
+        isVideo: p.is_video || false,
+        stickied: p.stickied || false,
+      };
+    });
 
-    // Cache for 5 minutes
     res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
     res.status(200).json({ subreddit: sub, sort, entries });
   } catch (e) {

@@ -330,6 +330,479 @@ function TeamRosterBlock(props) {
   return <div><div className="flex items-center gap-2 mb-2 mt-1"><div className="w-1 h-4 rounded" style={{background: props.teamColor}} /><span className="text-xs font-bold text-white uppercase tracking-wider">{props.teamName}</span></div>{(props.roster || []).map(function(p) { return <PlayerRow key={p.player_id} p={p} />; })}</div>;
 }
 
+// ─── DAILY FACT ─────────────────────────────────────────────
+// Two layers of facts:
+//   1. Season-level — mined from analysis (leaderboard, team_stats, power rankings)
+//   2. Match-level — fetched from map_stats_view (individual performances, streaks, records)
+// Day-of-year advances the starting index: day 87 shows fact[87 % total],
+// day 88 shows fact[88 % total], etc. You never see the same first fact two days in a row.
+// The pool grows after every sync — new matches = new facts automatically.
+
+function getDayOfYear() {
+  var now = new Date();
+  var start = new Date(now.getFullYear(), 0, 0);
+  return Math.floor((now - start) / 86400000);
+}
+
+async function fetchRecentMapStats() {
+  return mySupaFetch("map_stats_view", "select=*&event_is_cdl=eq.true&order=scheduled_at.desc&limit=800");
+}
+
+function generateSeasonFacts(analysis) {
+  var facts = [];
+  var players = analysis.playerStats || [];
+  var power = analysis.power || [];
+  var teamStats = analysis.teamStats || {};
+  var teams = Object.values(teamStats);
+
+  if (players.length === 0 || power.length === 0) return facts;
+
+  var powerRankOf = function(tid) {
+    for (var i = 0; i < power.length; i++) {
+      if (power[i].tid === tid) return i + 1;
+    }
+    return null;
+  };
+
+  // 1. Highest K/D on the lowest-ranked team
+  var lowestTeam = power[power.length - 1];
+  if (lowestTeam) {
+    var lowestPlayers = players.filter(function(p) { return p.team_id === lowestTeam.tid; });
+    var bestOnWorst = lowestPlayers.slice().sort(function(a, b) { return (b.kd || 0) - (a.kd || 0); })[0];
+    if (bestOnWorst && bestOnWorst.kd >= 1.0) {
+      facts.push({ emoji: "💎", category: "Hidden Gem", text: bestOnWorst.gamertag + " is putting up a " + bestOnWorst.kd.toFixed(2) + " K/D on the #" + power.length + " ranked team (" + lowestTeam.short + "). Diamond in the rough.", color: "#52b788" });
+    }
+  }
+
+  // 2. Best mode win% but worst in another mode
+  if (teams.length >= 4) {
+    var hpSorted = teams.slice().sort(function(a, b) { return (b.hp_win_pct || 0) - (a.hp_win_pct || 0); });
+    var sndSorted = teams.slice().sort(function(a, b) { return (b.snd_win_pct || 0) - (a.snd_win_pct || 0); });
+    var bestHp = hpSorted[0];
+    var sndRank = sndSorted.findIndex(function(t) { return t.team_id === bestHp.team_id; });
+    if (sndRank >= teams.length - 3 && bestHp.hp_win_pct > 55) {
+      facts.push({ emoji: "🎭", category: "Jekyll & Hyde", text: (bestHp.team_abbr || bestHp.team_name) + " has the best Hardpoint win rate (" + bestHp.hp_win_pct.toFixed(0) + "%) but ranks #" + (sndRank + 1) + " out of " + teams.length + " in Search & Destroy.", color: "#ffd166" });
+    }
+    var bestSnd = sndSorted[0];
+    var hpRank = hpSorted.findIndex(function(t) { return t.team_id === bestSnd.team_id; });
+    if (hpRank >= teams.length - 3 && bestSnd.snd_win_pct > 55) {
+      facts.push({ emoji: "🎭", category: "Jekyll & Hyde", text: (bestSnd.team_abbr || bestSnd.team_name) + " leads the league in SnD win rate (" + bestSnd.snd_win_pct.toFixed(0) + "%) but sits #" + (hpRank + 1) + " in Hardpoint.", color: "#ffd166" });
+    }
+  }
+
+  // 3. K/D gap between #1 and last team
+  if (power.length >= 2) {
+    var topKd = power[0].kd || 0;
+    var botKd = power[power.length - 1].kd || 0;
+    var gap = topKd - botKd;
+    if (gap < 0.12 && gap > 0) {
+      facts.push({ emoji: "📏", category: "Razor Thin", text: "The K/D gap between #1 " + power[0].short + " (" + topKd.toFixed(2) + ") and #" + power.length + " " + power[power.length - 1].short + " (" + botKd.toFixed(2) + ") is only " + gap.toFixed(2) + ". Parity is real.", color: "#53a8b6" });
+    } else if (gap >= 0.12) {
+      facts.push({ emoji: "📏", category: "Wide Gap", text: power[0].short + " leads the league with a " + topKd.toFixed(2) + " team K/D — " + gap.toFixed(2) + " higher than last-place " + power[power.length - 1].short + " (" + botKd.toFixed(2) + ").", color: "#e94560" });
+    }
+  }
+
+  // 4. SMG player with highest K/D overall
+  var smgs = players.filter(function(p) { return p.role === "SMG"; });
+  if (smgs.length > 0) {
+    var topSmg = smgs.slice().sort(function(a, b) { return (b.kd || 0) - (a.kd || 0); })[0];
+    var overallRank = players.slice().sort(function(a, b) { return (b.kd || 0) - (a.kd || 0); }).findIndex(function(p) { return p.player_id === topSmg.player_id; }) + 1;
+    if (overallRank <= 5) {
+      facts.push({ emoji: "🏃", category: "Sub Slayer", text: topSmg.gamertag + " is the #" + overallRank + " K/D in the league at " + topSmg.kd.toFixed(2) + " — as an SMG. Running and gunning at the top.", color: "#e94560" });
+    }
+  }
+
+  // 5. AR player with most HP hill time
+  var ars = players.filter(function(p) { return p.role === "AR"; });
+  if (ars.length > 0) {
+    var arByHill = ars.slice().sort(function(a, b) { return (b.hp_hill_time_per_10m || b.hill_time || 0) - (a.hp_hill_time_per_10m || a.hill_time || 0); })[0];
+    if (arByHill && (arByHill.hp_hill_time_per_10m || arByHill.hill_time || 0) > 0) {
+      var allByHill = players.slice().sort(function(a, b) { return (b.hp_hill_time_per_10m || b.hill_time || 0) - (a.hp_hill_time_per_10m || a.hill_time || 0); });
+      var hillRank = allByHill.findIndex(function(p) { return p.player_id === arByHill.player_id; }) + 1;
+      if (hillRank <= 8) {
+        facts.push({ emoji: "⏱️", category: "Dirty Work", text: arByHill.gamertag + " ranks #" + hillRank + " in hill time despite playing AR. Not just posting up — getting in the hill.", color: "#53a8b6" });
+      }
+    }
+  }
+
+  // 6. SnD first blood leader
+  var fbPlayers = players.filter(function(p) { return (p.snd_fb_pct || p.snd_first_blood_pct || 0) > 0; });
+  if (fbPlayers.length > 2) {
+    var topFb = fbPlayers.slice().sort(function(a, b) { return (b.snd_fb_pct || b.snd_first_blood_pct || 0) - (a.snd_fb_pct || a.snd_first_blood_pct || 0); })[0];
+    var fbVal = topFb.snd_fb_pct || topFb.snd_first_blood_pct || 0;
+    if (fbVal > 0) {
+      facts.push({ emoji: "🎯", category: "First Blood King", text: topFb.gamertag + " leads the league in SnD first blood percentage at " + (fbVal > 1 ? fbVal.toFixed(1) : (fbVal * 100).toFixed(1)) + "%. The round starts with them getting a pick.", color: "#e94560" });
+    }
+  }
+
+  // 7. Power rank vs CDL standings mismatch
+  if (power.length >= 6) {
+    for (var pi = 0; pi < Math.min(power.length, 4); pi++) {
+      var t = power[pi];
+      if (t.standingRank && t.standingRank >= 8) {
+        facts.push({ emoji: "📊", category: "Eye Test vs Record", text: t.short + " ranks #" + (pi + 1) + " in power rating but sits at #" + t.standingRank + " in CDL standings. The stats say they're better than their record.", color: "#ffd166" });
+        break;
+      }
+    }
+    for (var qi = power.length - 1; qi >= power.length - 4 && qi >= 0; qi--) {
+      var u = power[qi];
+      if (u.standingRank && u.standingRank <= 4) {
+        facts.push({ emoji: "📊", category: "Clutch Gene", text: u.short + " is #" + u.standingRank + " in CDL standings despite ranking #" + (qi + 1) + " in power rating. Winning the matches that matter.", color: "#52b788" });
+        break;
+      }
+    }
+  }
+
+  // 8. Biggest HP score differential
+  if (teams.length > 0) {
+    var hpDiffSorted = teams.slice().sort(function(a, b) { return (b.hp_score_diff || 0) - (a.hp_score_diff || 0); });
+    var topHpDiff = hpDiffSorted[0];
+    if (topHpDiff && (topHpDiff.hp_score_diff || 0) > 10) {
+      facts.push({ emoji: "🔥", category: "HP Dominance", text: (topHpDiff.team_abbr || topHpDiff.team_name) + " leads the league with a +" + (topHpDiff.hp_score_diff || 0).toFixed(0) + " Hardpoint score differential. Outscoring opponents by that much on average.", color: "#52b788" });
+    }
+  }
+
+  // 9. Bad SnD team that's otherwise good
+  if (teams.length > 0) {
+    var sndDiffSorted = teams.slice().sort(function(a, b) { return (a.snd_round_diff || 0) - (b.snd_round_diff || 0); });
+    var worstSnd = sndDiffSorted[0];
+    if (worstSnd && (worstSnd.snd_round_diff || 0) < -5) {
+      var sndPowerRank = powerRankOf(worstSnd.team_id);
+      if (sndPowerRank && sndPowerRank <= 6) {
+        facts.push({ emoji: "💀", category: "SnD Achilles Heel", text: (worstSnd.team_abbr || worstSnd.team_name) + " has a " + (worstSnd.snd_round_diff || 0).toFixed(0) + " SnD round differential despite being a top-" + sndPowerRank + " team overall. Map 2 is costing them series.", color: "#ff6b6b" });
+      }
+    }
+  }
+
+  // 10. Most maps played
+  var mapPlayers = players.filter(function(p) { return (p.maps_played || p.total_maps || 0) > 0; });
+  if (mapPlayers.length > 0) {
+    var mostMaps = mapPlayers.slice().sort(function(a, b) { return (b.maps_played || b.total_maps || 0) - (a.maps_played || a.total_maps || 0); })[0];
+    var mapCount = mostMaps.maps_played || mostMaps.total_maps || 0;
+    if (mapCount > 20) {
+      facts.push({ emoji: "🗺️", category: "Iron Man", text: mostMaps.gamertag + " has played " + mapCount + " maps this season — more than anyone else in the CDL. No breaks.", color: "#53a8b6" });
+    }
+  }
+
+  // 11. Closest power ratings
+  if (power.length >= 2) {
+    var minGap = Infinity, closePair = null;
+    for (var ci = 0; ci < power.length - 1; ci++) {
+      var g = Math.abs(power[ci].score - power[ci + 1].score);
+      if (g < minGap && g > 0) { minGap = g; closePair = [power[ci], power[ci + 1]]; }
+    }
+    if (closePair && minGap < 3) {
+      facts.push({ emoji: "⚖️", category: "Dead Even", text: closePair[0].short + " and " + closePair[1].short + " are separated by just " + minGap.toFixed(1) + " power rating points. A coin flip series.", color: "#ffd166" });
+    }
+  }
+
+  // 12. Most lopsided mode split
+  if (teams.length > 0) {
+    var maxSpread = 0, spreadTeam = null;
+    teams.forEach(function(t) {
+      var modes = [t.hp_win_pct || 0, t.snd_win_pct || 0, t.ovl_win_pct || 0];
+      var hi = Math.max.apply(null, modes), lo = Math.min.apply(null, modes);
+      if (hi - lo > maxSpread) { maxSpread = hi - lo; spreadTeam = t; }
+    });
+    if (spreadTeam && maxSpread > 25) {
+      var modeNames = ["Hardpoint", "SnD", "Overflow"];
+      var modePcts = [spreadTeam.hp_win_pct || 0, spreadTeam.snd_win_pct || 0, spreadTeam.ovl_win_pct || 0];
+      var bestIdx = modePcts.indexOf(Math.max.apply(null, modePcts));
+      var worstIdx = modePcts.indexOf(Math.min.apply(null, modePcts));
+      facts.push({ emoji: "📉", category: "Mode Gap", text: (spreadTeam.team_abbr || spreadTeam.team_name) + " wins " + modePcts[bestIdx].toFixed(0) + "% of their " + modeNames[bestIdx] + " maps but only " + modePcts[worstIdx].toFixed(0) + "% of " + modeNames[worstIdx] + ". A " + maxSpread.toFixed(0) + "% swing.", color: "#ffd166" });
+    }
+  }
+
+  // 13. Flex outperforming ARs
+  var flexPlayers = players.filter(function(p) { return p.role === "Flex"; });
+  if (flexPlayers.length > 0 && ars.length > 0) {
+    var topFlex = flexPlayers.slice().sort(function(a, b) { return (b.kd || 0) - (a.kd || 0); })[0];
+    var arsBetter = ars.filter(function(a) { return (a.kd || 0) > (topFlex.kd || 0); }).length;
+    if (arsBetter <= 2 && topFlex.kd >= 1.0) {
+      facts.push({ emoji: "🔀", category: "Flex God", text: topFlex.gamertag + " is putting up a " + topFlex.kd.toFixed(2) + " K/D as a Flex — higher than " + (ars.length - arsBetter) + " of " + ars.length + " main ARs. Versatility pays.", color: "#ffd166" });
+    }
+  }
+
+  // 14. Top team's star
+  if (power.length > 0) {
+    var topTeam = power[0];
+    if (topTeam.star && topTeam.starKd > 0) {
+      facts.push({ emoji: "⭐", category: "MVP Frontrunner", text: topTeam.star + " is the star of the #1 ranked " + topTeam.name + " with a " + topTeam.starKd.toFixed(2) + " K/D and a " + topTeam.matchWins + "-" + topTeam.matchLosses + " team record.", color: "#52b788" });
+    }
+  }
+
+  // 15. League K/D average
+  if (players.length > 4) {
+    var totalKd = 0;
+    players.forEach(function(p) { totalKd += (p.kd || 0); });
+    var avgKd = totalKd / players.length;
+    var above = players.filter(function(p) { return (p.kd || 0) >= 1.0; }).length;
+    facts.push({ emoji: "📈", category: "League Pulse", text: "The average CDL K/D this season is " + avgKd.toFixed(3) + ". Only " + above + " of " + players.length + " players are at or above a 1.00.", color: "#53a8b6" });
+  }
+
+  return facts;
+}
+
+function generateMatchFacts(mapStats) {
+  var facts = [];
+  if (!mapStats || mapStats.length === 0) return facts;
+
+  var fmtDate = function(dt) {
+    try { return new Date(dt).toLocaleDateString("en-US", {weekday: "short", month: "short", day: "numeric"}); }
+    catch(e) { return ""; }
+  };
+
+  // A. Single-map kill record per mode
+  var modes = {};
+  mapStats.forEach(function(m) {
+    var mode = m.mode_name || "Unknown";
+    if (!modes[mode]) modes[mode] = [];
+    modes[mode].push(m);
+  });
+  Object.keys(modes).forEach(function(mode) {
+    var sorted = modes[mode].slice().sort(function(a, b) { return (b.kills || 0) - (a.kills || 0); });
+    var top = sorted[0];
+    if (top && (top.kills || 0) >= 25) {
+      facts.push({ emoji: "💀", category: mode + " Kill Record", text: (top.gamertag || ("Player " + top.player_id)) + " dropped " + top.kills + " kills on " + (top.map_name || "") + " " + mode + " vs " + (top.opp_team_abbr || "") + " (" + fmtDate(top.scheduled_at) + "). The most by any player in a single " + mode + " this season.", color: "#e94560" });
+    }
+  });
+
+  // B. Highest single-map K/D (min 15 kills)
+  var highKdMaps = mapStats.filter(function(m) { return (m.kills || 0) >= 15; }).slice().sort(function(a, b) { return (b.kd || 0) - (a.kd || 0); });
+  if (highKdMaps.length > 0) {
+    var best = highKdMaps[0];
+    if (best.kd >= 2.0) {
+      facts.push({ emoji: "🎮", category: "Flawless Map", text: (best.gamertag || ("Player " + best.player_id)) + " went " + best.kills + "-" + best.deaths + " (" + best.kd.toFixed(2) + " K/D) on " + (best.map_name || "") + " " + (best.mode_name || "") + " vs " + (best.opp_team_abbr || "") + ". Absolutely fried.", color: "#52b788" });
+    }
+  }
+
+  // C. Team map streaks — consecutive wins on a specific map
+  var teamMaps = {};
+  mapStats.forEach(function(m) {
+    var key = m.team_id + "-" + (m.map_name || "");
+    if (!teamMaps[key]) teamMaps[key] = {team: m.player_team_abbr || "", map: m.map_name || "", results: []};
+    var existing = teamMaps[key].results;
+    if (existing.length === 0 || existing[existing.length - 1].smid !== m.series_map_id) {
+      existing.push({smid: m.series_map_id, won: m.won_map, at: m.scheduled_at});
+    }
+  });
+  Object.values(teamMaps).forEach(function(tm) {
+    var streak = 0;
+    for (var i = 0; i < tm.results.length; i++) { if (tm.results[i].won) streak++; else break; }
+    if (streak >= 4) {
+      facts.push({ emoji: "🗺️", category: "Map Fortress", text: tm.team + " has won " + streak + " straight maps on " + tm.map + ". Nobody's beating them there.", color: "#52b788" });
+    }
+  });
+
+  // D. Team mode streaks
+  var teamModes = {};
+  mapStats.forEach(function(m) {
+    var key = m.team_id + "-" + (m.mode_name || "");
+    if (!teamModes[key]) teamModes[key] = {team: m.player_team_abbr || "", mode: m.mode_name || "", results: []};
+    var existing = teamModes[key].results;
+    if (existing.length === 0 || existing[existing.length - 1].smid !== m.series_map_id) {
+      existing.push({smid: m.series_map_id, won: m.won_map, at: m.scheduled_at});
+    }
+  });
+  Object.values(teamModes).forEach(function(tm) {
+    var streak = 0;
+    for (var i = 0; i < tm.results.length; i++) { if (tm.results[i].won) streak++; else break; }
+    if (streak >= 5) {
+      facts.push({ emoji: "🔥", category: tm.mode + " Streak", text: tm.team + " has won " + streak + " consecutive " + tm.mode + " maps. On a tear.", color: "#52b788" });
+    }
+    var lStreak = 0;
+    for (var j = 0; j < tm.results.length; j++) { if (!tm.results[j].won) lStreak++; else break; }
+    if (lStreak >= 5) {
+      facts.push({ emoji: "📉", category: tm.mode + " Slump", text: tm.team + " has lost " + lStreak + " straight " + tm.mode + " maps. Something has to change.", color: "#ff6b6b" });
+    }
+  });
+
+  // E. Player positive streak
+  var playerMaps = {};
+  mapStats.forEach(function(m) {
+    if (!playerMaps[m.player_id]) playerMaps[m.player_id] = {gt: m.gamertag || ("Player " + m.player_id), team: m.player_team_abbr || "", maps: []};
+    playerMaps[m.player_id].maps.push({kd: m.kd || 0, at: m.scheduled_at});
+  });
+  Object.values(playerMaps).forEach(function(pm) {
+    var streak = 0;
+    for (var i = 0; i < pm.maps.length; i++) { if (pm.maps[i].kd >= 1.0) streak++; else break; }
+    if (streak >= 8) {
+      facts.push({ emoji: "🔥", category: "On Fire", text: pm.gt + " has gone positive in " + streak + " consecutive maps. Can't be stopped right now.", color: "#52b788" });
+    }
+  });
+
+  // F. Player negative streak
+  Object.values(playerMaps).forEach(function(pm) {
+    var streak = 0;
+    for (var i = 0; i < pm.maps.length; i++) { if (pm.maps[i].kd < 1.0) streak++; else break; }
+    if (streak >= 8) {
+      facts.push({ emoji: "❄️", category: "Cold Streak", text: pm.gt + " (" + pm.team + ") has gone negative in " + streak + " straight maps. Looking for a bounce-back.", color: "#ff6b6b" });
+    }
+  });
+
+  // G. Biggest HP blowout
+  var hpMaps = mapStats.filter(function(m) { return (m.mode_name || "").toLowerCase().indexOf("hardpoint") >= 0; });
+  if (hpMaps.length > 0) {
+    var hpByMap = {};
+    hpMaps.forEach(function(m) { if (!hpByMap[m.series_map_id]) hpByMap[m.series_map_id] = m; });
+    var biggestMargin = 0, blowoutMap = null;
+    Object.values(hpByMap).forEach(function(m) {
+      var margin = Math.abs((m.map_home_score || 0) - (m.map_away_score || 0));
+      if (margin > biggestMargin) { biggestMargin = margin; blowoutMap = m; }
+    });
+    if (blowoutMap && biggestMargin >= 80) {
+      var hiScore = Math.max(blowoutMap.map_home_score || 0, blowoutMap.map_away_score || 0);
+      var loScore = Math.min(blowoutMap.map_home_score || 0, blowoutMap.map_away_score || 0);
+      facts.push({ emoji: "💨", category: "HP Blowout", text: "The biggest HP margin this season: " + hiScore + "-" + loScore + " on " + (blowoutMap.map_name || "") + " (" + fmtDate(blowoutMap.scheduled_at) + "). A " + biggestMargin + "-point blowout.", color: "#53a8b6" });
+    }
+  }
+
+  // H. Most first bloods in a single SnD
+  var sndMaps = mapStats.filter(function(m) { return (m.mode_name || "").toLowerCase().indexOf("snd") >= 0 || (m.mode_name || "").toLowerCase().indexOf("search") >= 0; });
+  if (sndMaps.length > 0) {
+    var topFbMap = sndMaps.slice().sort(function(a, b) { return (b.first_bloods || 0) - (a.first_bloods || 0); })[0];
+    if (topFbMap && (topFbMap.first_bloods || 0) >= 4) {
+      facts.push({ emoji: "🎯", category: "SnD Opener", text: (topFbMap.gamertag || ("Player " + topFbMap.player_id)) + " had " + topFbMap.first_bloods + " first bloods in a single SnD vs " + (topFbMap.opp_team_abbr || "") + " on " + (topFbMap.map_name || "") + ". Opening almost every round.", color: "#e94560" });
+    }
+  }
+
+  // I. Map 1 momentum
+  var teamMap1 = {};
+  mapStats.forEach(function(m) {
+    if (m.map_number !== 1) return;
+    var key = m.team_id;
+    if (!teamMap1[key]) teamMap1[key] = {team: m.player_team_abbr || "", w1ws: 0, w1ls: 0, l1ws: 0, l1ls: 0, seen: {}};
+    if (teamMap1[key].seen[m.match_id]) return;
+    teamMap1[key].seen[m.match_id] = true;
+    if (m.won_map && m.won_series) teamMap1[key].w1ws++;
+    else if (m.won_map && !m.won_series) teamMap1[key].w1ls++;
+    else if (!m.won_map && m.won_series) teamMap1[key].l1ws++;
+    else teamMap1[key].l1ls++;
+  });
+  Object.values(teamMap1).forEach(function(tm) {
+    var totalW1 = tm.w1ws + tm.w1ls, totalL1 = tm.l1ws + tm.l1ls;
+    if (totalW1 >= 3 && tm.w1ws / totalW1 >= 0.8 && totalL1 >= 2 && tm.l1ls / totalL1 >= 0.7) {
+      facts.push({ emoji: "1️⃣", category: "Map 1 or Bust", text: tm.team + " is " + tm.w1ws + "-" + tm.w1ls + " when winning map 1 but " + tm.l1ws + "-" + tm.l1ls + " when they drop it. That first map sets the tone.", color: "#ffd166" });
+    }
+  });
+
+  // J. Most damage in a single map
+  var topDmg = mapStats.slice().sort(function(a, b) { return (b.damage || 0) - (a.damage || 0); })[0];
+  if (topDmg && (topDmg.damage || 0) >= 5000) {
+    facts.push({ emoji: "💥", category: "Damage Record", text: (topDmg.gamertag || ("Player " + topDmg.player_id)) + " dealt " + Math.round(topDmg.damage).toLocaleString() + " damage in a single " + (topDmg.mode_name || "") + " on " + (topDmg.map_name || "") + " vs " + (topDmg.opp_team_abbr || "") + ". Pure chaos.", color: "#e94560" });
+  }
+
+  // K. Unbeaten on a specific map
+  Object.values(teamMaps).forEach(function(tm) {
+    if (tm.results.length >= 3 && tm.results.every(function(r) { return r.won; })) {
+      facts.push({ emoji: "🏰", category: "Unbeaten", text: tm.team + " is a perfect " + tm.results.length + "-0 on " + tm.map + " this season. No one has taken it from them.", color: "#52b788" });
+    }
+  });
+
+  // L. Hot/cold player trends (last 3 series vs season)
+  var playerSeriesKd = {};
+  mapStats.forEach(function(m) {
+    if (!playerSeriesKd[m.player_id]) playerSeriesKd[m.player_id] = {gt: m.gamertag || ("Player " + m.player_id), team: m.player_team_abbr || "", series: {}};
+    if (!playerSeriesKd[m.player_id].series[m.match_id]) playerSeriesKd[m.player_id].series[m.match_id] = {kills: 0, deaths: 0, at: m.scheduled_at};
+    playerSeriesKd[m.player_id].series[m.match_id].kills += (m.kills || 0);
+    playerSeriesKd[m.player_id].series[m.match_id].deaths += (m.deaths || 0);
+  });
+  Object.values(playerSeriesKd).forEach(function(pm) {
+    var seriesList = Object.values(pm.series).sort(function(a, b) { return new Date(b.at) - new Date(a.at); });
+    if (seriesList.length < 4) return;
+    var recentK = 0, recentD = 0, totalK = 0, totalD = 0;
+    seriesList.forEach(function(s, i) {
+      totalK += s.kills; totalD += s.deaths;
+      if (i < 3) { recentK += s.kills; recentD += s.deaths; }
+    });
+    var recentKd = recentD > 0 ? recentK / recentD : recentK;
+    var seasonKd = totalD > 0 ? totalK / totalD : totalK;
+    if (recentKd - seasonKd >= 0.15 && recentKd >= 1.05) {
+      facts.push({ emoji: "📈", category: "Heating Up", text: pm.gt + " (" + pm.team + ") averaged a " + recentKd.toFixed(2) + " K/D over their last 3 series — up from their season " + seasonKd.toFixed(2) + ". Trending up.", color: "#52b788" });
+    }
+    if (seasonKd - recentKd >= 0.15 && seasonKd >= 1.0) {
+      facts.push({ emoji: "📉", category: "Cooling Off", text: pm.gt + " (" + pm.team + ") has dropped to a " + recentKd.toFixed(2) + " K/D over their last 3 series — down from their season " + seasonKd.toFixed(2) + ".", color: "#ff6b6b" });
+    }
+  });
+
+  return facts;
+}
+
+function DailyFact(props) {
+  var analysis = props.analysis;
+  var [offset, setOffset] = useState(0);
+  var [mapStats, setMapStats] = useState(null);
+  var [loading, setLoading] = useState(true);
+
+  useEffect(function() {
+    fetchRecentMapStats().then(function(data) {
+      setMapStats(data || []);
+    }).catch(function() {
+      setMapStats([]);
+    }).finally(function() {
+      setLoading(false);
+    });
+  }, []);
+
+  var facts = useMemo(function() {
+    var season = generateSeasonFacts(analysis);
+    var match = generateMatchFacts(mapStats);
+    return season.concat(match);
+  }, [analysis, mapStats]);
+
+  if (loading) {
+    return <div className="rounded-xl overflow-hidden mb-6 px-4 py-4" style={{
+      background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"
+    }}>
+      <div className="flex items-center gap-3">
+        <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#e94560", borderTopColor: "transparent"}} />
+        <span className="text-xs" style={{color: "#555"}}>Finding today's stat...</span>
+      </div>
+    </div>;
+  }
+
+  if (facts.length === 0) return null;
+
+  // Day-advancing: each day starts one fact later in the list
+  var idx = (getDayOfYear() + offset) % facts.length;
+  var fact = facts[idx];
+
+  return <div className="rounded-xl overflow-hidden mb-6" style={{
+    background: "linear-gradient(135deg, rgba(233,69,96,0.06) 0%, rgba(255,255,255,0.03) 50%, rgba(83,168,182,0.06) 100%)",
+    border: "1px solid rgba(255,255,255,0.08)"
+  }}>
+    <div className="flex items-center justify-between px-4 pt-3 pb-2">
+      <div className="flex items-center gap-2">
+        <span style={{fontSize: "14px"}}>{fact.emoji}</span>
+        <span className="text-xs font-bold uppercase tracking-wider" style={{color: fact.color}}>{fact.category}</span>
+      </div>
+      <button onClick={function() { setOffset(offset + 1); }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all" style={{
+        background: "rgba(255,255,255,0.05)", color: "#666", border: "1px solid rgba(255,255,255,0.06)"
+      }} title="Show another fact">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
+          <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
+          <line x1="4" y1="4" x2="9" y2="9" />
+        </svg>
+        <span>Another</span>
+      </button>
+    </div>
+    <div className="px-4 pb-4">
+      <p className="text-sm leading-relaxed" style={{color: "#c8c8d0"}}>{fact.text}</p>
+    </div>
+    <div className="flex justify-center gap-1 pb-3">
+      {facts.slice(0, Math.min(facts.length, 12)).map(function(_, i) {
+        return <div key={i} className="rounded-full transition-all" style={{
+          width: i === idx && idx < 12 ? "16px" : "4px", height: "4px",
+          background: i === idx && idx < 12 ? fact.color : "rgba(255,255,255,0.1)"
+        }} />;
+      })}
+      {facts.length > 12 && <div className="text-xs ml-1" style={{color: "#555", lineHeight: "4px"}}>+{facts.length - 12}</div>}
+    </div>
+  </div>;
+}
+
+
 function WhosHot(props) {
   var [cat, setCat] = useState("kd");
   var list = cat === "kd" ? props.topKd : cat === "hp" ? props.topHpK : props.topSndKpr;
@@ -1670,7 +2143,7 @@ function ScheduleTab(props) {
   }) : (analysis.results || []);
 
   return <div className="space-y-3">
-    <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
+    <DailyFact analysis={analysis} />
 
     {/* Upcoming / Results toggle */}
     <div className="flex rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>

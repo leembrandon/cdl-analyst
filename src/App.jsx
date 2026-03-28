@@ -137,26 +137,24 @@ async function fetchRedditPosts() {
   } catch(e) {}
 
   try {
-    var res = await fetch("https://www.reddit.com/r/CoDCompetitive/hot.json?limit=20&raw_json=1");
+    var res = await fetch("/api/reddit?sort=hot&limit=25");
     if (!res.ok) return [];
     var json = await res.json();
-    var posts = (json.data && json.data.children || []).map(function(c) {
-      var d = c.data;
-      if (!d || d.stickied) return null;
+    var posts = (json.posts || []).map(function(d) {
       return {
         id: d.id,
         title: d.title || "",
         author: d.author || "",
         score: d.score || 0,
-        numComments: d.num_comments || 0,
-        url: "https://reddit.com" + d.permalink,
-        created: d.created_utc ? new Date(d.created_utc * 1000) : null,
-        flair: d.link_flair_text || "",
-        thumbnail: (d.thumbnail && d.thumbnail.indexOf("http") === 0) ? d.thumbnail : null,
-        isLink: d.is_self === false,
+        numComments: d.numComments || 0,
+        url: d.url || "",
+        created: d.created ? new Date(d.created * 1000) : null,
+        flair: d.flair || "",
+        thumbnail: d.thumbnail || null,
+        isLink: d.isLink || false,
         domain: d.domain || ""
       };
-    }).filter(Boolean);
+    });
     try { sessionStorage.setItem(REDDIT_CACHE_KEY, JSON.stringify({ts: Date.now(), data: posts})); } catch(e) {}
     return posts;
   } catch(e) {

@@ -2096,20 +2096,104 @@ function PicksTab(props) {
   </div>;
 }
 
+// ─── UNIFIED PLAYERS TAB ─────────────────────────────────────
+
+function PlayersTab(props) {
+  var analysis = props.analysis;
+  var subView = props.subView || "leaderboard";
+  var setSubView = props.setSubView;
+  var initialCompare = props.initialCompare;
+  var initialLine = props.initialLine;
+
+  return <div>
+    {/* Sub-navigation pills */}
+    <div className="flex gap-1.5 mb-4">
+      {[
+        {key: "leaderboard", label: "Leaderboard"},
+        {key: "compare", label: "Compare"},
+        {key: "lines", label: "Line check"}
+      ].map(function(sv) {
+        var isActive = subView === sv.key;
+        return <button key={sv.key} onClick={function() { setSubView(sv.key); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+          background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
+          color: isActive ? "#e94560" : "#666",
+          border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
+        }}>{sv.label}</button>;
+      })}
+    </div>
+
+    {subView === "leaderboard" && <div>
+      <h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2>
+      <PlayerLeaderboard analysis={analysis} />
+    </div>}
+    {subView === "compare" && <div>
+      <h2 className="text-lg font-bold text-white mb-4">Player comparison</h2>
+      <PlayerCompare analysis={analysis} initialCompare={initialCompare} />
+    </div>}
+    {subView === "lines" && <div>
+      <CDLLinesTab analysis={analysis} initialLine={initialLine} />
+    </div>}
+  </div>;
+}
+
+// ─── UNIFIED TEAMS TAB ──────────────────────────────────────
+
+function TeamsTab(props) {
+  var analysis = props.analysis;
+  var teamPageId = props.teamPageId;
+  var setTeamPageId = props.setTeamPageId;
+  var onBack = props.onBack;
+  var [subView, setSubView] = useState("standings");
+
+  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major";
+
+  if (teamPageId) {
+    return <TeamPage tid={teamPageId} analysis={analysis} onBack={onBack} />;
+  }
+
+  return <div>
+    {/* Sub-navigation pills */}
+    <div className="flex gap-1.5 mb-4">
+      {[
+        {key: "standings", label: "Standings"},
+        {key: "power", label: "Power rankings"}
+      ].map(function(sv) {
+        var isActive = subView === sv.key;
+        return <button key={sv.key} onClick={function() { setSubView(sv.key); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
+          background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
+          color: isActive ? "#e94560" : "#666",
+          border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
+        }}>{sv.label}</button>;
+      })}
+    </div>
+
+    {subView === "standings" && <div>
+      <h2 className="text-lg font-bold text-white mb-1">CDL standings</h2>
+      <p className="text-xs opacity-40 mb-4">Ordered by {majorName} standings</p>
+      <TeamsGrid analysis={analysis} onTeamClick={setTeamPageId} />
+    </div>}
+    {subView === "power" && <div>
+      <h2 className="text-lg font-bold text-white mb-4">Power rankings</h2>
+      <PowerRankings power={analysis.power} />
+    </div>}
+  </div>;
+}
+
 // ─── MAIN APP ────────────────────────────────────────────────
 
-var TABS = ["Schedule", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
+var TABS = ["Matches", "Teams", "Players", "Picks"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
   var picksParam = urlParams.get("picks");
-  var [tab, setTab] = useState(compareParam ? "Compare" : lineParam ? "Lines" : picksParam ? "Picks" : "Schedule");
+  var [tab, setTab] = useState(compareParam ? "Players" : lineParam ? "Players" : picksParam ? "Picks" : "Matches");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
   var [teamPageId, setTeamPageId] = useState(null);
+  var [playerSubView, setPlayerSubView] = useState(compareParam ? "compare" : lineParam ? "lines" : "leaderboard");
 
   var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
   var closeTeam = function() { setTeamPageId(null); };
@@ -2140,8 +2224,6 @@ export default function App() {
 
   if (error) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center p-6 rounded-xl max-w-md" style={{background: "rgba(233,69,96,0.1)", border: "1px solid rgba(233,69,96,0.3)"}}><p className="text-lg font-bold mb-2" style={{color: "#e94560"}}>Failed to load</p><p className="text-sm opacity-60">{error}</p><button onClick={function() { window.location.reload(); }} className="mt-4 px-4 py-2 rounded-lg text-sm font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button></div></div>;
 
-  var majorName = (analysis.majorStandings && analysis.majorStandings[0] && analysis.majorStandings[0].event_name) || "Major";
-
   return <div className="min-h-screen" style={{background: "#0d0d1a", color: "#c8c8d0"}}>
     <Analytics beforeSend={function(event) {
   if (localStorage.getItem("barracks_no_track")) return null;
@@ -2150,24 +2232,14 @@ export default function App() {
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>
-        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
+        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); if (t === "Players" && playerSubView !== "leaderboard" && !compareParam && !lineParam) setPlayerSubView("leaderboard"); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
-      {tab === "Schedule" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
+      {tab === "Matches" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
+      {tab === "Teams" && <TeamsTab analysis={analysis} teamPageId={teamPageId} setTeamPageId={setTeamPageId} onBack={closeTeam} />}
+      {tab === "Players" && <PlayersTab analysis={analysis} subView={playerSubView} setSubView={setPlayerSubView} initialCompare={compareParam} initialLine={lineParam} />}
       {tab === "Picks" && <PicksTab analysis={analysis} />}
-      {tab === "Rankings" && <div><h2 className="text-lg font-bold text-white mb-4">Power rankings</h2><PowerRankings power={analysis.power} /></div>}
-      {tab === "Teams" && <div>
-        {teamPageId ? <TeamPage tid={teamPageId} analysis={analysis} onBack={closeTeam} /> : <div>
-          <h2 className="text-lg font-bold text-white mb-1">CDL standings</h2>
-          <p className="text-xs opacity-40 mb-4">Ordered by {majorName} standings</p>
-          <TeamsGrid analysis={analysis} onTeamClick={setTeamPageId} />
-        </div>}
-      </div>}
-      {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
-      {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
-      {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
-      {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>
   </div>;

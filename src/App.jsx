@@ -2394,15 +2394,57 @@ function MatchPreview(props) {
 
   var t1Roster = mu.t1Roster || [];
   var t2Roster = mu.t2Roster || [];
+  // Group each roster by role, sorted by K/D descending within each role
+  var groupByRole = function(roster) {
+    var groups = {};
+    roster.forEach(function(p) {
+      var role = p.role || "Unknown";
+      if (!groups[role]) groups[role] = [];
+      groups[role].push(p);
+    });
+    Object.keys(groups).forEach(function(role) {
+      groups[role].sort(function(a, b) { return s(b, "kd") - s(a, "kd"); });
+    });
+    return groups;
+  };
+  var t1Groups = groupByRole(t1Roster);
+  var t2Groups = groupByRole(t2Roster);
+
+  // Build matchups: for each role, pair players by K/D rank (highest vs highest)
   var roleMatchups = [];
-  var t2Used = {};
-  t1Roster.forEach(function(p1r) {
-    var role = p1r.role || "";
-    var match = null;
-    t2Roster.forEach(function(p2r) { if (!t2Used[p2r.player_id] && p2r.role === role) { match = p2r; t2Used[p2r.player_id] = true; } });
-    if (!match) { t2Roster.forEach(function(p2r) { if (!t2Used[p2r.player_id] && !match) { match = p2r; t2Used[p2r.player_id] = true; } }); }
-    if (match) roleMatchups.push({p1: p1r, p2: match, role: role});
+  var t2Matched = {};
+  // Process roles that exist on both sides first
+  Object.keys(t1Groups).forEach(function(role) {
+    var t1Players = t1Groups[role] || [];
+    var t2Players = (t2Groups[role] || []).filter(function(p) { return !t2Matched[p.player_id]; });
+    t1Players.forEach(function(p1r, idx) {
+      if (idx < t2Players.length) {
+        var p2r = t2Players[idx];
+        roleMatchups.push({p1: p1r, p2: p2r, role: role});
+        t2Matched[p2r.player_id] = true;
+      }
+    });
   });
+  // Any unmatched T1 players get paired with remaining T2 players by K/D
+  var unmatchedT1 = [];
+  Object.keys(t1Groups).forEach(function(role) {
+    var t2Players = (t2Groups[role] || []).filter(function(p) { return !t2Matched[p.player_id]; });
+    var t1Players = t1Groups[role] || [];
+    t1Players.forEach(function(p1r, idx) {
+      var alreadyMatched = roleMatchups.some(function(rm) { return rm.p1.player_id === p1r.player_id; });
+      if (!alreadyMatched) unmatchedT1.push(p1r);
+    });
+  });
+  var unmatchedT2 = t2Roster.filter(function(p) { return !t2Matched[p.player_id]; }).sort(function(a, b) { return s(b, "kd") - s(a, "kd"); });
+  unmatchedT1.sort(function(a, b) { return s(b, "kd") - s(a, "kd"); });
+  unmatchedT1.forEach(function(p1r, idx) {
+    if (idx < unmatchedT2.length) {
+      roleMatchups.push({p1: p1r, p2: unmatchedT2[idx], role: p1r.role || "Unknown"});
+    }
+  });
+  // Sort final matchups by role order: AR > Flex > SMG
+  var roleOrder = {AR: 0, Flex: 1, SMG: 2, Unknown: 3};
+  roleMatchups.sort(function(a, b) { return (roleOrder[a.role] || 3) - (roleOrder[b.role] || 3); });
 
   var cd = timeUntil(mu.datetime);
   var modes = [{label: "Hardpoint", k: "hp_win_pct", kd: "hp_kd", diff: "hp_score_diff"}, {label: "SnD", k: "snd_win_pct", kd: "snd_kd", diff: "snd_round_diff"}, {label: "Overload", k: "ovl_win_pct", kd: "ovl_kd", diff: "ovl_score_diff"}];

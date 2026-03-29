@@ -160,7 +160,6 @@ export function renderCompareImage(p1, p2) {
   // --- Player names + KD hero ---
   var mid = CARD_WIDTH / 2;
 
-  // Use gamertag (v2) with fallback to player_tag (legacy)
   var name1 = p1.gamertag || p1.player_tag || "P1";
   var name2 = p2.gamertag || p2.player_tag || "P2";
   var short1 = p1.team_abbr || p1.team_short || "";
@@ -258,9 +257,6 @@ export function renderCompareImage(p1, p2) {
   return canvas;
 }
 
-/**
- * Generate a share image blob from the canvas and trigger share or download.
- */
 export function shareCompareImage(p1, p2, shareUrl) {
   return new Promise(function(resolve, reject) {
     try {
@@ -295,17 +291,6 @@ export function shareCompareImage(p1, p2, shareUrl) {
 
 // ─── LINE CHECK CARD ────────────────────────────────────────
 
-/**
- * Render a CDL prop line check result as a Canvas image.
- *
- * data = {
- *   gamertag, role, teamAbbr, teamColor,
- *   seasonKd, seasonHpK10, seasonSndKpr,
- *   catLabel, catSub, direction, threshold, isKd,
- *   dataPoints: [{value, opp, oppColor, kills, deaths, won}],
- *   hits, total, hitPct, avg
- * }
- */
 export function renderLineCard(data) {
   var pts = data.dataPoints || [];
   var maxBubbles = Math.min(pts.length, 20);
@@ -315,13 +300,11 @@ export function renderLineCard(data) {
   var bubbleRows = Math.ceil(maxBubbles / bubblesPerRow);
   var bubblesH = bubbleRows * (BUBBLE_SIZE + 18) + 8;
 
-  // Game log rows
   var LOG_ROW_H = 26;
   var logRows = Math.min(pts.length, 10);
   var logHeaderH = 24;
   var logH = logRows > 0 ? logHeaderH + (logRows * LOG_ROW_H) + 8 : 0;
 
-  // Card sections
   var headerH = 40;
   var playerH = 68;
   var resultH = 80;
@@ -335,13 +318,11 @@ export function renderLineCard(data) {
   var ctx = canvas.getContext("2d");
   ctx.scale(scale, scale);
 
-  // Background
   fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
 
   var y = 0;
   var mid = CARD_WIDTH / 2;
 
-  // --- Header ---
   fillRoundedRect(ctx, 0, 0, CARD_WIDTH, headerH, 0, "rgba(233,69,96,0.08)");
   drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
   drawText(ctx, "LINE CHECK", CARD_WIDTH - CARD_PADDING, 12, {size: 10, weight: "700", color: TEXT_DIM, align: "right"});
@@ -349,57 +330,39 @@ export function renderLineCard(data) {
   ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
   y = headerH;
 
-  // --- Player info ---
   var teamColor = data.teamColor || "#888";
-
-  // Team color accent bar
   fillRoundedRect(ctx, CARD_PADDING, y + 14, 4, 40, 2, teamColor);
-
   drawText(ctx, data.gamertag || "?", CARD_PADDING + 16, y + 12, {size: 20, weight: "900", color: TEXT_WHITE, align: "left"});
-
   var roleText = (data.role || "") + (data.role && data.teamAbbr ? " · " : "") + (data.teamAbbr || "");
   drawText(ctx, roleText, CARD_PADDING + 16, y + 36, {size: 11, weight: "400", color: TEXT_DIM, align: "left"});
 
-  // Season stats on the right
   var statX = CARD_WIDTH - CARD_PADDING;
   drawText(ctx, "K/D", statX - 120, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
   drawText(ctx, (data.seasonKd || 0).toFixed(2), statX - 120, y + 24, {size: 15, weight: "800", color: kdColor(data.seasonKd || 0), align: "center"});
-
   drawText(ctx, "HP K/10", statX - 60, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
   drawText(ctx, (data.seasonHpK10 || 0).toFixed(1), statX - 60, y + 24, {size: 15, weight: "800", color: "#aaaaaa", align: "center"});
-
   drawText(ctx, "SnD KPR", statX, y + 12, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
   drawText(ctx, (data.seasonSndKpr || 0).toFixed(2), statX, y + 24, {size: 15, weight: "800", color: "#aaaaaa", align: "center"});
 
   y += playerH;
-
-  // --- Divider ---
   ctx.fillStyle = "rgba(255,255,255,0.05)";
   ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
   y += 1;
 
-  // --- Result section ---
   var hitColor = data.hitPct >= 60 ? GREEN : data.hitPct >= 40 ? YELLOW : RED;
   var resultBg = data.hitPct >= 60 ? "rgba(82,183,136,0.06)" : data.hitPct >= 40 ? "rgba(255,209,102,0.06)" : "rgba(255,107,107,0.06)";
-
   ctx.fillStyle = resultBg;
   ctx.fillRect(0, y, CARD_WIDTH, resultH);
 
-  // Direction + line label
   var dirLabel = (data.direction || "over").toUpperCase() + " " + (data.isKd ? Number(data.threshold).toFixed(2) : data.threshold);
   drawText(ctx, dirLabel, CARD_PADDING, y + 14, {size: 16, weight: "900", color: hitColor, align: "left"});
   drawText(ctx, data.catLabel || "", CARD_PADDING, y + 36, {size: 11, weight: "400", color: TEXT_DIM, align: "left"});
-  if (data.catSub) {
-    drawText(ctx, data.catSub, CARD_PADDING, y + 52, {size: 10, weight: "400", color: TEXT_MUTED, align: "left"});
-  }
+  if (data.catSub) drawText(ctx, data.catSub, CARD_PADDING, y + 52, {size: 10, weight: "400", color: TEXT_MUTED, align: "left"});
 
-  // Hit count
   drawText(ctx, data.hits + "/" + data.total, CARD_WIDTH - CARD_PADDING, y + 10, {size: 36, weight: "900", color: hitColor, align: "right"});
   drawText(ctx, data.hitPct.toFixed(0) + "%", CARD_WIDTH - CARD_PADDING, y + 52, {size: 14, weight: "800", color: hitColor, align: "right"});
 
   y += resultH;
-
-  // --- Bubbles ---
   ctx.fillStyle = "rgba(255,255,255,0.05)";
   ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
   y += 8;
@@ -410,35 +373,28 @@ export function renderLineCard(data) {
     var col = i % bubblesPerRow;
     var bx = CARD_PADDING + col * (BUBBLE_SIZE + BUBBLE_GAP);
     var by = y + row * (BUBBLE_SIZE + 18);
-
     var val = p.value;
     var isHit = data.direction === "over" ? val >= data.threshold : val < data.threshold;
     var bubbleColor = isHit ? "rgba(82,183,136,0.25)" : "rgba(255,107,107,0.2)";
     var textColor = isHit ? GREEN : RED;
 
-    // Bubble circle
     ctx.beginPath();
     ctx.arc(bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE / 2, BUBBLE_SIZE / 2, 0, Math.PI * 2);
     ctx.fillStyle = bubbleColor;
     ctx.fill();
 
-    // Value text
     var display = data.isKd ? val.toFixed(1) : String(Math.round(val));
     drawText(ctx, display, bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE / 2 - 5, {size: 10, weight: "800", color: textColor, align: "center"});
-
-    // Opponent label below
     drawText(ctx, p.opp || "?", bx + BUBBLE_SIZE / 2, by + BUBBLE_SIZE + 2, {size: 8, weight: "400", color: p.oppColor || TEXT_MUTED, align: "center"});
   }
 
   y += bubblesH;
 
-  // --- Game log ---
   if (logRows > 0) {
     ctx.fillStyle = "rgba(255,255,255,0.05)";
     ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
     y += 4;
 
-    // Log header
     var colW = (CARD_WIDTH - CARD_PADDING * 2);
     var cols = [
       {label: "OPP", x: CARD_PADDING, align: "left"},
@@ -460,7 +416,6 @@ export function renderLineCard(data) {
       var gVal = g.value;
       var gHit = data.direction === "over" ? gVal >= data.threshold : gVal < data.threshold;
 
-      // Alternating row bg
       if (j % 2 === 0) {
         ctx.fillStyle = "rgba(255,255,255,0.02)";
         ctx.fillRect(CARD_PADDING, y - 2, colW, LOG_ROW_H);
@@ -472,7 +427,6 @@ export function renderLineCard(data) {
       drawText(ctx, gkd.toFixed(2), cols[3].x, y + 2, {size: 11, weight: "700", color: kdColor(gkd), align: "center"});
       drawText(ctx, g.won ? "W" : "L", cols[4].x, y + 2, {size: 11, weight: "800", color: g.won ? GREEN : RED, align: "center"});
 
-      // Highlighted value column
       var valDisplay = data.isKd ? gVal.toFixed(2) : String(Math.round(gVal));
       drawText(ctx, valDisplay, cols[5].x, y + 2, {size: 11, weight: "800", color: gHit ? GREEN : RED, align: "right"});
 
@@ -481,7 +435,6 @@ export function renderLineCard(data) {
     y += 4;
   }
 
-  // --- Footer ---
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(0, y, CARD_WIDTH, 1);
   y += 1;
@@ -492,9 +445,6 @@ export function renderLineCard(data) {
   return canvas;
 }
 
-/**
- * Share or download a line check card image.
- */
 export function shareLineCard(data, shareUrl) {
   return new Promise(function(resolve, reject) {
     try {
@@ -530,14 +480,6 @@ export function shareLineCard(data, shareUrl) {
 
 // ─── PICKS SHARE CARD ───────────────────────────────────────
 
-/**
- * Render a picks share image as a Canvas.
- *
- * picks = [{
- *   winnerAbbr, winnerColor, loserAbbr, loserColor,
- *   score, eventShort, datetime
- * }]
- */
 export function renderPicksCard(picks, eventName) {
   var ROW_H = 56;
   var headerH = 40;
@@ -553,13 +495,11 @@ export function renderPicksCard(picks, eventName) {
   var ctx = canvas.getContext("2d");
   ctx.scale(scale, scale);
 
-  // Background
   fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
 
   var y = 0;
   var mid = CARD_WIDTH / 2;
 
-  // --- Header ---
   ctx.fillStyle = "rgba(233,69,96,0.08)";
   ctx.fillRect(0, 0, CARD_WIDTH, headerH);
   drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
@@ -568,50 +508,38 @@ export function renderPicksCard(picks, eventName) {
   ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
   y = headerH;
 
-  // --- Title area — use event name ---
   var titleText = eventName || "PICKS";
   drawText(ctx, titleText.toUpperCase(), mid, y + 14, {size: 22, weight: "900", color: TEXT_WHITE, align: "center"});
   drawText(ctx, numPicks + " match" + (numPicks !== 1 ? "es" : "") + " predicted", mid, y + 42, {size: 11, weight: "400", color: TEXT_DIM, align: "center"});
   y += titleH;
 
-  // --- Divider ---
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
   y += 1;
 
-  // --- Pick rows ---
   picks.forEach(function(pick, i) {
     var rowY = y + (i * ROW_H);
     var centerY = rowY + ROW_H / 2;
 
-    // Alternating row bg
     if (i % 2 === 0) {
       ctx.fillStyle = "rgba(255,255,255,0.02)";
       ctx.fillRect(0, rowY, CARD_WIDTH, ROW_H);
     }
 
-    // Row divider
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     ctx.fillRect(CARD_PADDING, rowY + ROW_H - 1, CARD_WIDTH - CARD_PADDING * 2, 1);
 
-    // Winner team color bar
     fillRoundedRect(ctx, CARD_PADDING, centerY - 12, 4, 24, 2, pick.winnerColor || "#888");
-
-    // Winner name (bold, large)
     drawText(ctx, pick.winnerAbbr || "?", CARD_PADDING + 16, centerY - 12, {size: 18, weight: "900", color: TEXT_WHITE, align: "left"});
 
-    // Score in the middle
     var scoreX = mid;
-    // Score background pill
     var scoreText = pick.score || "?";
     fillRoundedRect(ctx, scoreX - 28, centerY - 12, 56, 24, 12, "rgba(82,183,136,0.15)");
     drawText(ctx, scoreText, scoreX, centerY - 5, {size: 14, weight: "900", color: GREEN, align: "center"});
 
-    // Loser team
     drawText(ctx, pick.loserAbbr || "?", CARD_WIDTH - CARD_PADDING - 16, centerY - 12, {size: 18, weight: "700", color: "#666666", align: "right"});
     fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 4, centerY - 12, 4, 24, 2, pick.loserColor || "#888");
 
-    // Event + date subtitle
     var subText = (pick.eventShort || "");
     if (pick.datetime) {
       try {
@@ -624,7 +552,6 @@ export function renderPicksCard(picks, eventName) {
 
   y += numPicks * ROW_H;
 
-  // --- Footer ---
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(0, y, CARD_WIDTH, 1);
   y += 1;
@@ -634,9 +561,6 @@ export function renderPicksCard(picks, eventName) {
   return canvas;
 }
 
-/**
- * Share or download a picks card image.
- */
 export function sharePicksImage(picks, shareUrl, eventName) {
   return new Promise(function(resolve, reject) {
     try {
@@ -671,21 +595,6 @@ export function sharePicksImage(picks, shareUrl, eventName) {
 
 // ─── RESULT CARD SHARE ──────────────────────────────────────
 
-/**
- * Render a match result share image as a Canvas.
- *
- * data = {
- *   home: {short, color, id}, away: {short, color, id},
- *   homeScore, awayScore, homeWon, awayWon,
- *   eventName,
- *   maps: [{map_number, mode_short, mode_name, map_name, home_score, away_score, winner_id}],
- *   homePlayers: [{name, kills, deaths, damage, kd}],
- *   awayPlayers: [{name, kills, deaths, damage, kd}],
- *   homeTeamTotals: {kills, deaths, damage, diff, kd} | null,
- *   awayTeamTotals: {kills, deaths, damage, diff, kd} | null,
- *   viewLabel: "Series" or "Map 1 — Hardpoint — Rewind"
- * }
- */
 export function renderResultCard(data) {
   var headerH = 40;
   var scoreH = 80;
@@ -717,7 +626,6 @@ export function renderResultCard(data) {
   var homeColor = data.home.color || "#888";
   var awayColor = data.away.color || "#888";
 
-  // --- Header ---
   ctx.fillStyle = "rgba(233,69,96,0.08)";
   ctx.fillRect(0, 0, CARD_WIDTH, headerH);
   drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
@@ -726,11 +634,9 @@ export function renderResultCard(data) {
   ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
   y = headerH;
 
-  // --- Series score ---
   fillRoundedRect(ctx, CARD_PADDING, y + 20, 4, 40, 2, homeColor);
   drawText(ctx, data.home.short || "?", CARD_PADDING + 16, y + 18, {size: 24, weight: "900", color: data.homeWon ? TEXT_WHITE : "#555555", align: "left"});
 
-  // Date/time under home team name
   if (data.datetime) {
     try {
       var d = new Date(data.datetime);
@@ -750,7 +656,6 @@ export function renderResultCard(data) {
 
   y += scoreH;
 
-  // --- Map scores table ---
   if (data.maps && data.maps.length > 0) {
     ctx.fillStyle = "rgba(255,255,255,0.05)";
     ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
@@ -779,7 +684,6 @@ export function renderResultCard(data) {
     y += 8;
   }
 
-  // --- View label (Series / Map X) ---
   if (data.viewLabel) {
     ctx.fillStyle = "rgba(255,255,255,0.05)";
     ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
@@ -788,7 +692,6 @@ export function renderResultCard(data) {
     y += viewLabelH;
   }
 
-  // --- Player stats columns ---
   var colPlayer = CARD_PADDING + 4;
   var colK = CARD_WIDTH - CARD_PADDING - 200;
   var colD = CARD_WIDTH - CARD_PADDING - 156;
@@ -804,7 +707,6 @@ export function renderResultCard(data) {
   drawText(ctx, "+/-", colDiff, y + 4, {size: 9, weight: "700", color: TEXT_MUTED, align: "right"});
   y += playerHeaderH;
 
-  // Helper to render one team block
   var renderTeamBlock = function(players, teamShort, teamColor, totals) {
     fillRoundedRect(ctx, CARD_PADDING + 4, y + 6, 3, 14, 1, teamColor);
     drawText(ctx, teamShort, CARD_PADDING + 14, y + 6, {size: 10, weight: "800", color: teamColor, align: "left"});
@@ -844,7 +746,6 @@ export function renderResultCard(data) {
   renderTeamBlock(awayPlayers, data.away.short, awayColor, data.awayTeamTotals);
   y += 8;
 
-  // --- Footer ---
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(0, y, CARD_WIDTH, 1);
   y += 1;
@@ -853,9 +754,6 @@ export function renderResultCard(data) {
   return canvas;
 }
 
-/**
- * Share or download a result card image.
- */
 export function shareResultImage(data, shareUrl) {
   return new Promise(function(resolve, reject) {
     try {
@@ -869,6 +767,314 @@ export function shareResultImage(data, shareUrl) {
         }
         var file = new File([blob], filename + ".png", {type: "image/png"});
         var title = (data.home.short || "?") + " vs " + (data.away.short || "?") + " — Barracks CDL Results";
+        if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
+          navigator.share({
+            files: [file],
+            title: title,
+            url: shareUrl || undefined
+          }).then(resolve).catch(resolve);
+        } else {
+          var link = document.createElement("a");
+          link.download = filename + ".png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          resolve();
+        }
+      }, "image/png");
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// ─── MATCH PREVIEW SHARE CARD ───────────────────────────────
+
+/**
+ * Render a match preview share image as a Canvas.
+ *
+ * data = {
+ *   t1Short, t1Name, t1Color,
+ *   t2Short, t2Name, t2Color,
+ *   eventName, datetime, bestOf,
+ *   favored, edge,
+ *   p1Score, p2Score,        // power scores
+ *   t1Form: {wins, losses},
+ *   t2Form: {wins, losses},
+ *   h2h: {t1Wins, t2Wins, total},
+ *   modes: [{label, w1, w2, kd1, kd2, d1, d2}],
+ *   roleMatchups: [{p1Name, p1Role, p1Kd, p2Name, p2Role, p2Kd}],
+ *   stats: [{label, v1, v2, fmt}]  // H2H stat rows
+ * }
+ */
+export function renderPreviewCard(data) {
+  var headerH = 40;
+  var heroH = 140;
+  var formH = 72;
+  var modeHeaderH = 28;
+  var MODE_ROW_H = 60;
+  var modes = data.modes || [];
+  var modesH = modes.length > 0 ? modeHeaderH + (modes.length * MODE_ROW_H) + 8 : 0;
+  var matchupHeaderH = 28;
+  var MATCHUP_ROW_H = 44;
+  var matchups = data.roleMatchups || [];
+  var matchupsH = matchups.length > 0 ? matchupHeaderH + (matchups.length * MATCHUP_ROW_H) + 8 : 0;
+  var statHeaderH = 32;
+  var STAT_ROW_H = 30;
+  var statRows = data.stats || [];
+  var statsH = statRows.length > 0 ? statHeaderH + (statRows.length * STAT_ROW_H) + 8 : 0;
+  var footerH = 36;
+  var cardHeight = headerH + heroH + formH + modesH + matchupsH + statsH + footerH;
+
+  var scale = 2;
+  var canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH * scale;
+  canvas.height = cardHeight * scale;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  fillRoundedRect(ctx, 0, 0, CARD_WIDTH, cardHeight, 16, SURFACE_COLOR);
+
+  var y = 0;
+  var mid = CARD_WIDTH / 2;
+  var t1Color = data.t1Color || "#888";
+  var t2Color = data.t2Color || "#888";
+
+  // --- Header ---
+  ctx.fillStyle = "rgba(233,69,96,0.08)";
+  ctx.fillRect(0, 0, CARD_WIDTH, headerH);
+  drawText(ctx, "BARRACKS", CARD_PADDING, 12, {size: 12, weight: "900", color: ACCENT, align: "left"});
+  drawText(ctx, "MATCH PREVIEW", CARD_WIDTH - CARD_PADDING, 12, {size: 10, weight: "700", color: TEXT_DIM, align: "right"});
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(0, headerH - 1, CARD_WIDTH, 1);
+  y = headerH;
+
+  // --- Hero: team gradient bg ---
+  // Subtle team color gradient
+  var grd = ctx.createLinearGradient(0, y, CARD_WIDTH, y);
+  grd.addColorStop(0, t1Color + "18");
+  grd.addColorStop(0.35, SURFACE_COLOR);
+  grd.addColorStop(0.65, SURFACE_COLOR);
+  grd.addColorStop(1, t2Color + "18");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, y, CARD_WIDTH, heroH);
+
+  // Event + time
+  drawText(ctx, (data.eventName || "") + " · Bo" + (data.bestOf || 5), mid, y + 10, {size: 10, weight: "700", color: TEXT_DIM, align: "center"});
+  if (data.datetime) {
+    try {
+      var d = new Date(data.datetime);
+      var dateStr = d.toLocaleString("en-US", {timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+      drawText(ctx, dateStr, mid, y + 24, {size: 9, weight: "400", color: TEXT_MUTED, align: "center"});
+    } catch(e) {}
+  }
+
+  // Team 1
+  fillRoundedRect(ctx, CARD_PADDING, y + 44, 5, 48, 2, t1Color);
+  drawText(ctx, data.t1Short || "?", CARD_PADDING + 18, y + 44, {size: 28, weight: "900", color: TEXT_WHITE, align: "left"});
+  drawText(ctx, data.t1Name || "", CARD_PADDING + 18, y + 76, {size: 10, weight: "400", color: "#666666", align: "left"});
+
+  // VS + favored
+  drawText(ctx, "VS", mid, y + 48, {size: 14, weight: "900", color: "rgba(255,255,255,0.15)", align: "center"});
+
+  // Favored badge
+  fillRoundedRect(ctx, mid - 42, y + 68, 84, 24, 12, "rgba(82,183,136,0.12)");
+  drawText(ctx, "\u25B8 " + (data.favored || "?"), mid, y + 72, {size: 11, weight: "800", color: GREEN, align: "center"});
+  drawText(ctx, "Edge: " + (data.edge || 0).toFixed(1), mid, y + 96, {size: 9, weight: "400", color: TEXT_DIM, align: "center"});
+
+  // Team 2
+  fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 5, y + 44, 5, 48, 2, t2Color);
+  drawText(ctx, data.t2Short || "?", CARD_WIDTH - CARD_PADDING - 18, y + 44, {size: 28, weight: "900", color: TEXT_WHITE, align: "right"});
+  drawText(ctx, data.t2Name || "", CARD_WIDTH - CARD_PADDING - 18, y + 76, {size: 10, weight: "400", color: "#666666", align: "right"});
+
+  // Power scores
+  drawText(ctx, (data.p1Score || 0).toFixed(1), CARD_PADDING + 18, y + 96, {size: 14, weight: "800", color: (data.p1Score || 0) >= (data.p2Score || 0) ? GREEN : "#888888", align: "left"});
+  drawText(ctx, "PWR", CARD_PADDING + 18, y + 114, {size: 8, weight: "400", color: TEXT_MUTED, align: "left"});
+  drawText(ctx, (data.p2Score || 0).toFixed(1), CARD_WIDTH - CARD_PADDING - 18, y + 96, {size: 14, weight: "800", color: (data.p2Score || 0) >= (data.p1Score || 0) ? GREEN : "#888888", align: "right"});
+  drawText(ctx, "PWR", CARD_WIDTH - CARD_PADDING - 18, y + 114, {size: 8, weight: "400", color: TEXT_MUTED, align: "right"});
+
+  y += heroH;
+
+  // --- Form + H2H row ---
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+  y += 1;
+
+  var thirdW = (CARD_WIDTH - CARD_PADDING * 2) / 3;
+  var formStartX = CARD_PADDING;
+
+  // T1 form
+  var t1F = data.t1Form || {wins: 0, losses: 0};
+  var t1FColor = t1F.wins > t1F.losses ? GREEN : t1F.wins < t1F.losses ? RED : YELLOW;
+  drawText(ctx, (data.t1Short || "?") + " FORM", formStartX + 8, y + 8, {size: 8, weight: "700", color: TEXT_MUTED, align: "left"});
+  drawText(ctx, t1F.wins + "W-" + t1F.losses + "L", formStartX + 8, y + 24, {size: 20, weight: "900", color: t1FColor, align: "left"});
+  drawText(ctx, "Last 5", formStartX + 8, y + 48, {size: 9, weight: "400", color: TEXT_MUTED, align: "left"});
+
+  // H2H center
+  var h2hData = data.h2h || {t1Wins: 0, t2Wins: 0, total: 0};
+  drawText(ctx, "HEAD TO HEAD", formStartX + thirdW + thirdW / 2, y + 8, {size: 8, weight: "700", color: TEXT_MUTED, align: "center"});
+  if (h2hData.total > 0) {
+    drawText(ctx, String(h2hData.t1Wins), formStartX + thirdW + thirdW / 2 - 16, y + 24, {size: 20, weight: "900", color: h2hData.t1Wins >= h2hData.t2Wins ? GREEN : RED, align: "right"});
+    drawText(ctx, "-", formStartX + thirdW + thirdW / 2, y + 28, {size: 14, weight: "400", color: TEXT_MUTED, align: "center"});
+    drawText(ctx, String(h2hData.t2Wins), formStartX + thirdW + thirdW / 2 + 16, y + 24, {size: 20, weight: "900", color: h2hData.t2Wins >= h2hData.t1Wins ? GREEN : RED, align: "left"});
+    drawText(ctx, h2hData.total + " series", formStartX + thirdW + thirdW / 2, y + 48, {size: 9, weight: "400", color: TEXT_MUTED, align: "center"});
+  } else {
+    drawText(ctx, "No meetings", formStartX + thirdW + thirdW / 2, y + 30, {size: 11, weight: "400", color: TEXT_DIM, align: "center"});
+  }
+
+  // T2 form
+  var t2F = data.t2Form || {wins: 0, losses: 0};
+  var t2FColor = t2F.wins > t2F.losses ? GREEN : t2F.wins < t2F.losses ? RED : YELLOW;
+  drawText(ctx, (data.t2Short || "?") + " FORM", formStartX + thirdW * 2 + thirdW - 8, y + 8, {size: 8, weight: "700", color: TEXT_MUTED, align: "right"});
+  drawText(ctx, t2F.wins + "W-" + t2F.losses + "L", formStartX + thirdW * 2 + thirdW - 8, y + 24, {size: 20, weight: "900", color: t2FColor, align: "right"});
+  drawText(ctx, "Last 5", formStartX + thirdW * 2 + thirdW - 8, y + 48, {size: 9, weight: "400", color: TEXT_MUTED, align: "right"});
+
+  y += formH;
+
+  // --- Mode breakdown ---
+  if (modes.length > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 1;
+
+    drawText(ctx, "MODE BREAKDOWN", CARD_PADDING, y + 8, {size: 9, weight: "700", color: ACCENT, align: "left"});
+    y += modeHeaderH;
+
+    // Column header
+    drawText(ctx, data.t1Short || "?", CARD_PADDING + 4, y - 4, {size: 9, weight: "700", color: t1Color, align: "left"});
+    drawText(ctx, data.t2Short || "?", CARD_WIDTH - CARD_PADDING - 4, y - 4, {size: 9, weight: "700", color: t2Color, align: "right"});
+
+    modes.forEach(function(mode) {
+      // Mode label centered
+      drawText(ctx, mode.label.toUpperCase(), mid, y + 4, {size: 9, weight: "700", color: TEXT_DIM, align: "center"});
+
+      // Win% row
+      var w1C = mode.w1 > mode.w2 ? GREEN : mode.w1 < mode.w2 ? "#666666" : YELLOW;
+      var w2C = mode.w2 > mode.w1 ? GREEN : mode.w2 < mode.w1 ? "#666666" : YELLOW;
+      drawText(ctx, (mode.w1 || 0).toFixed(1) + "%", CARD_PADDING + 4, y + 18, {size: 13, weight: "700", color: w1C, align: "left"});
+      drawText(ctx, "Win%", mid - 80, y + 20, {size: 9, weight: "400", color: TEXT_MUTED, align: "center"});
+      drawText(ctx, (mode.w2 || 0).toFixed(1) + "%", CARD_WIDTH - CARD_PADDING - 4, y + 18, {size: 13, weight: "700", color: w2C, align: "right"});
+
+      // K/D row
+      drawText(ctx, (mode.kd1 || 0).toFixed(2), CARD_PADDING + 4, y + 36, {size: 13, weight: "700", color: kdColor(mode.kd1 || 0), align: "left"});
+      drawText(ctx, "K/D", mid, y + 38, {size: 9, weight: "400", color: TEXT_MUTED, align: "center"});
+      drawText(ctx, (mode.kd2 || 0).toFixed(2), CARD_WIDTH - CARD_PADDING - 4, y + 36, {size: 13, weight: "700", color: kdColor(mode.kd2 || 0), align: "right"});
+
+      // Diff
+      var d1C = (mode.d1 || 0) > 0 ? GREEN : RED;
+      var d2C = (mode.d2 || 0) > 0 ? GREEN : RED;
+      drawText(ctx, ((mode.d1 || 0) > 0 ? "+" : "") + (mode.d1 || 0).toFixed(1), mid - 80, y + 38, {size: 10, weight: "600", color: d1C, align: "left"});
+      drawText(ctx, ((mode.d2 || 0) > 0 ? "+" : "") + (mode.d2 || 0).toFixed(1), mid + 80, y + 38, {size: 10, weight: "600", color: d2C, align: "right"});
+
+      // Divider
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(CARD_PADDING, y + MODE_ROW_H - 2, CARD_WIDTH - CARD_PADDING * 2, 1);
+
+      y += MODE_ROW_H;
+    });
+    y += 8;
+  }
+
+  // --- Player matchups ---
+  if (matchups.length > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 1;
+
+    drawText(ctx, "PLAYER MATCHUPS", CARD_PADDING, y + 8, {size: 9, weight: "700", color: ACCENT, align: "left"});
+    y += matchupHeaderH;
+
+    matchups.forEach(function(rm, i) {
+      var adv = rm.p1Kd > rm.p2Kd ? "t1" : rm.p2Kd > rm.p1Kd ? "t2" : "even";
+
+      if (i % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.02)";
+        ctx.fillRect(CARD_PADDING, y - 2, CARD_WIDTH - CARD_PADDING * 2, MATCHUP_ROW_H);
+      }
+
+      // P1
+      fillRoundedRect(ctx, CARD_PADDING + 4, y + 6, 3, 28, 1, t1Color);
+      drawText(ctx, rm.p1Name || "?", CARD_PADDING + 14, y + 4, {size: 12, weight: "700", color: TEXT_WHITE, align: "left"});
+      drawText(ctx, (rm.p1Role || "") + " · " + (rm.p1Kd || 0).toFixed(2) + " K/D", CARD_PADDING + 14, y + 20, {size: 9, weight: "400", color: kdColor(rm.p1Kd || 0), align: "left"});
+
+      // Arrow
+      var arrowColor = adv === "even" ? YELLOW : GREEN;
+      var arrowChar = adv === "t1" ? "\u25C0" : adv === "t2" ? "\u25B6" : "=";
+      ctx.beginPath();
+      ctx.arc(mid, y + MATCHUP_ROW_H / 2, 10, 0, Math.PI * 2);
+      ctx.fillStyle = adv === "even" ? "rgba(255,209,102,0.15)" : "rgba(82,183,136,0.15)";
+      ctx.fill();
+      drawText(ctx, arrowChar, mid, y + MATCHUP_ROW_H / 2 - 5, {size: 8, weight: "800", color: arrowColor, align: "center"});
+
+      // P2
+      fillRoundedRect(ctx, CARD_WIDTH - CARD_PADDING - 7, y + 6, 3, 28, 1, t2Color);
+      drawText(ctx, rm.p2Name || "?", CARD_WIDTH - CARD_PADDING - 14, y + 4, {size: 12, weight: "700", color: TEXT_WHITE, align: "right"});
+      drawText(ctx, (rm.p2Kd || 0).toFixed(2) + " K/D · " + (rm.p2Role || ""), CARD_WIDTH - CARD_PADDING - 14, y + 20, {size: 9, weight: "400", color: kdColor(rm.p2Kd || 0), align: "right"});
+
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(CARD_PADDING, y + MATCHUP_ROW_H - 2, CARD_WIDTH - CARD_PADDING * 2, 1);
+
+      y += MATCHUP_ROW_H;
+    });
+    y += 8;
+  }
+
+  // --- H2H stat rows ---
+  if (statRows.length > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(CARD_PADDING, y, CARD_WIDTH - CARD_PADDING * 2, 1);
+    y += 1;
+
+    // Column header
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fillRect(0, y, CARD_WIDTH, statHeaderH);
+    drawText(ctx, data.t1Short || "?", mid - 44, y + 10, {size: 11, weight: "700", color: t1Color, align: "right"});
+    drawText(ctx, "stat", mid, y + 11, {size: 10, weight: "400", color: "rgba(255,255,255,0.3)", align: "center"});
+    drawText(ctx, data.t2Short || "?", mid + 44, y + 10, {size: 11, weight: "700", color: t2Color, align: "left"});
+    y += statHeaderH;
+
+    statRows.forEach(function(row) {
+      var f1 = row.fmt === "pct" ? (row.v1 || 0).toFixed(1) + "%" : row.fmt === "0.0" ? (row.v1 || 0).toFixed(1) : (row.v1 || 0).toFixed(2);
+      var f2 = row.fmt === "pct" ? (row.v2 || 0).toFixed(1) + "%" : row.fmt === "0.0" ? (row.v2 || 0).toFixed(1) : (row.v2 || 0).toFixed(2);
+      var c1 = (row.v1 || 0) > (row.v2 || 0) ? GREEN : (row.v1 || 0) < (row.v2 || 0) ? "#666666" : YELLOW;
+      var c2 = (row.v2 || 0) > (row.v1 || 0) ? GREEN : (row.v2 || 0) < (row.v1 || 0) ? "#666666" : YELLOW;
+
+      ctx.fillStyle = "rgba(255,255,255,0.025)";
+      ctx.fillRect(CARD_PADDING, y + STAT_ROW_H - 1, CARD_WIDTH - CARD_PADDING * 2, 1);
+
+      drawText(ctx, f1, mid - 44, y + 7, {size: 13, weight: "700", color: c1, align: "right"});
+      drawText(ctx, row.label || "", mid, y + 8, {size: 10, weight: "400", color: TEXT_DIM, align: "center"});
+      drawText(ctx, f2, mid + 44, y + 7, {size: 13, weight: "700", color: c2, align: "left"});
+
+      y += STAT_ROW_H;
+    });
+    y += 8;
+  }
+
+  // --- Footer ---
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, y, CARD_WIDTH, 1);
+  y += 1;
+  drawText(ctx, "thebarracks.vercel.app", mid, y + 10, {size: 9, weight: "400", color: "rgba(255,255,255,0.25)", align: "center"});
+
+  return canvas;
+}
+
+/**
+ * Share or download a match preview card image.
+ */
+export function sharePreviewImage(data, shareUrl) {
+  return new Promise(function(resolve, reject) {
+    try {
+      var canvas = renderPreviewCard(data);
+      var filename = "barracks-preview-" + (data.t1Short || "t1") + "-vs-" + (data.t2Short || "t2");
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          reject(new Error("Failed to generate image"));
+          return;
+        }
+        var file = new File([blob], filename + ".png", {type: "image/png"});
+        var title = (data.t1Short || "?") + " vs " + (data.t2Short || "?") + " — Barracks CDL Match Preview";
         if (navigator.share && navigator.canShare && navigator.canShare({files: [file]})) {
           navigator.share({
             files: [file],

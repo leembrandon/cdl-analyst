@@ -367,7 +367,7 @@ function PowerRankings(props) {
 }
 
 function MatchCard(props) {
-  var mu = props.mu, onTeamClick = props.onTeamClick;
+  var mu = props.mu, onTeamClick = props.onTeamClick, onPreview = props.onPreview;
   var [expanded, setExpanded] = useState(false);
   var t1S = (mu.t1 && mu.t1.name_short) || "?";
   var t2S = (mu.t2 && mu.t2.name_short) || "?";
@@ -387,6 +387,7 @@ function MatchCard(props) {
     </div>
     {expanded && <div>
       <div className="px-4 pb-3 pt-1" style={{borderTop: "1px solid rgba(255,255,255,0.05)"}}>
+        {onPreview && <button onClick={function(e) { e.stopPropagation(); onPreview(mu); }} className="w-full mb-3 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(233,69,96,0.1)", color: "#e94560", border: "1px solid rgba(233,69,96,0.2)"}}>Full match preview →</button>}
         <div className="text-xs uppercase tracking-wider opacity-40 mb-2">Team comparison</div>
         <div className="grid grid-cols-3 items-center pb-1 mb-1" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
           <div className="text-right pr-3 text-xs font-bold cursor-pointer hover:underline" style={{color: (mu.t1Stats && mu.t1Stats.team_color) || "#888"}} onClick={function(e) { e.stopPropagation(); onTeamClick(mu.t1Stats && mu.t1Stats.team_id); }}>{t1S}</div>
@@ -1912,11 +1913,10 @@ function CDLLinesTab(props) {
 // ─── SCHEDULE TAB ───────────────────────────────────────────
 
 function ScheduleTab(props) {
-  var analysis = props.analysis, openTeam = props.openTeam;
+  var analysis = props.analysis, openTeam = props.openTeam, openPreview = props.openPreview;
   var [view, setView] = useState("upcoming");
   var [selectedEventId, setSelectedEventId] = useState(null);
 
-  // Extract unique events from completed results
   var resultEvents = useMemo(function() {
     var seen = {};
     var list = [];
@@ -1930,17 +1930,13 @@ function ScheduleTab(props) {
     return list;
   }, [analysis.results]);
 
-  // Default to the first event (most recent matches come first, so first event = current)
   var activeEventId = selectedEventId || (resultEvents.length > 0 ? resultEvents[0].id : null);
 
-  // Filter results by selected event
   var filteredResults = activeEventId ? (analysis.results || []).filter(function(r) {
     return r.event && r.event.id === activeEventId;
   }) : (analysis.results || []);
 
   return <div className="space-y-3">
-    <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
-
     {/* Upcoming / Results toggle */}
     <div className="flex rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}>
       <button onClick={function() { setView("upcoming"); }} className="flex-1 py-2.5 text-sm font-bold transition-all" style={{
@@ -1954,7 +1950,7 @@ function ScheduleTab(props) {
     </div>
 
     {view === "upcoming" && <div className="space-y-3">
-      {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} />; })}
+      {analysis.matchups.map(function(mu) { return <MatchCard key={mu.id} mu={mu} onTeamClick={openTeam} onPreview={openPreview} />; })}
       {analysis.matchups.length === 0 && <div className="text-center py-8 opacity-30"><p className="text-sm">No upcoming matches with known teams</p></div>}
     </div>}
 
@@ -2365,6 +2361,189 @@ function PicksTab(props) {
   </div>;
 }
 
+// ─── MATCH PREVIEW PAGE ─────────────────────────────────────
+
+function MatchPreview(props) {
+  var mu = props.matchup;
+  var analysis = props.analysis;
+  var onBack = props.onBack;
+  var onTeamClick = props.onTeamClick;
+  var onPlayerClick = props.onPlayerClick;
+  var onMakePick = props.onMakePick;
+
+  var t1 = mu.t1Stats || {};
+  var t2 = mu.t2Stats || {};
+  var t1Short = (mu.t1 && mu.t1.name_short) || "?";
+  var t2Short = (mu.t2 && mu.t2.name_short) || "?";
+  var t1Name = (mu.t1 && mu.t1.name) || t1Short;
+  var t2Name = (mu.t2 && mu.t2.name) || t2Short;
+  var t1Color = t1.team_color || "#888";
+  var t2Color = t2.team_color || "#888";
+  var p1 = mu.p1 || {};
+  var p2 = mu.p2 || {};
+
+  var t1Recent = (analysis.results || []).filter(function(r) { return r.home.id === t1.team_id || r.away.id === t1.team_id; }).slice(0, 5);
+  var t2Recent = (analysis.results || []).filter(function(r) { return r.home.id === t2.team_id || r.away.id === t2.team_id; }).slice(0, 5);
+  var formRecord = function(recent, tid) { var w = 0, l = 0; recent.forEach(function(r) { if (r.winnerId === tid) w++; else l++; }); return {wins: w, losses: l}; };
+  var t1Form = formRecord(t1Recent, t1.team_id);
+  var t2Form = formRecord(t2Recent, t2.team_id);
+
+  var h2h = (analysis.results || []).filter(function(r) { return (r.home.id === t1.team_id && r.away.id === t2.team_id) || (r.home.id === t2.team_id && r.away.id === t1.team_id); });
+  var t1H2HWins = 0, t2H2HWins = 0;
+  h2h.forEach(function(r) { if (r.winnerId === t1.team_id) t1H2HWins++; else if (r.winnerId === t2.team_id) t2H2HWins++; });
+
+  var t1Roster = mu.t1Roster || [];
+  var t2Roster = mu.t2Roster || [];
+  var roleMatchups = [];
+  var t2Used = {};
+  t1Roster.forEach(function(p1r) {
+    var role = p1r.role || "";
+    var match = null;
+    t2Roster.forEach(function(p2r) { if (!t2Used[p2r.player_id] && p2r.role === role) { match = p2r; t2Used[p2r.player_id] = true; } });
+    if (!match) { t2Roster.forEach(function(p2r) { if (!t2Used[p2r.player_id] && !match) { match = p2r; t2Used[p2r.player_id] = true; } }); }
+    if (match) roleMatchups.push({p1: p1r, p2: match, role: role});
+  });
+
+  var cd = timeUntil(mu.datetime);
+  var modes = [{label: "Hardpoint", k: "hp_win_pct", kd: "hp_kd", diff: "hp_score_diff"}, {label: "SnD", k: "snd_win_pct", kd: "snd_kd", diff: "snd_round_diff"}, {label: "Overload", k: "ovl_win_pct", kd: "ovl_kd", diff: "ovl_score_diff"}];
+
+  return <div>
+    <button onClick={onBack} className="text-sm mb-4 hover:underline" style={{color: "#e94560"}}>{"\u2190"} back</button>
+
+    {/* Hero */}
+    <div className="rounded-2xl overflow-hidden mb-5" style={{background: "linear-gradient(135deg, " + t1Color + "15, rgba(13,13,26,0.95) 40%, rgba(13,13,26,0.95) 60%, " + t2Color + "15)", border: "1px solid rgba(255,255,255,0.08)"}}>
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-5">
+          <span className="text-xs uppercase tracking-widest font-bold" style={{color: "#888"}}>{(mu.event && mu.event.name_short) || ""} · Bo{mu.bestOf}</span>
+          <span className="px-3 py-1 rounded-full text-xs font-bold" style={{background: cd === "LIVE" ? "#e94560" : "rgba(255,255,255,0.08)", color: cd === "LIVE" ? "#fff" : "#888"}}>{cd === "LIVE" ? "\u25CF LIVE" : cd}</span>
+        </div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1 cursor-pointer" onClick={function() { if (onTeamClick) onTeamClick(t1.team_id); }}>
+            <div className="flex items-center gap-3"><div className="w-2 h-14 rounded-full" style={{background: t1Color}} /><div><div className="text-2xl font-black text-white tracking-tight">{t1Short}</div><div className="text-xs" style={{color: "#666"}}>{t1Name}</div></div></div>
+          </div>
+          <div className="flex flex-col items-center px-4"><div className="text-xs uppercase tracking-widest font-bold mb-1" style={{color: "#444"}}>vs</div><div className="text-xs" style={{color: "#555"}}>{utcToET(mu.datetime)}</div></div>
+          <div className="flex-1 text-right cursor-pointer" onClick={function() { if (onTeamClick) onTeamClick(t2.team_id); }}>
+            <div className="flex items-center gap-3 justify-end"><div><div className="text-2xl font-black text-white tracking-tight">{t2Short}</div><div className="text-xs" style={{color: "#666"}}>{t2Name}</div></div><div className="w-2 h-14 rounded-full" style={{background: t2Color}} /></div>
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-6 py-3 rounded-xl" style={{background: "rgba(255,255,255,0.03)"}}>
+          <div className="text-center"><div className="text-lg font-black" style={{color: p1.score >= p2.score ? "#52b788" : "#888"}}>{(p1.score || 0).toFixed(1)}</div><div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Power</div></div>
+          <div className="text-center px-4 py-1.5 rounded-lg" style={{background: "rgba(82,183,136,0.1)", border: "1px solid rgba(82,183,136,0.15)"}}><div style={{fontSize: "9px", color: "#52b788", fontWeight: 700, letterSpacing: "1px"}}>FAVORED</div><div className="text-sm font-black" style={{color: "#52b788"}}>{mu.favored}</div><div style={{fontSize: "9px", color: "#555"}}>Edge: {mu.edge.toFixed(1)}</div></div>
+          <div className="text-center"><div className="text-lg font-black" style={{color: p2.score >= p1.score ? "#52b788" : "#888"}}>{(p2.score || 0).toFixed(1)}</div><div style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>Power</div></div>
+        </div>
+      </div>
+    </div>
+
+    {/* Form + H2H */}
+    <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="rounded-xl p-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}><div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px"}}>{t1Short} form</div><div className="text-xl font-black" style={{color: t1Form.wins > t1Form.losses ? "#52b788" : t1Form.wins < t1Form.losses ? "#ff6b6b" : "#ffd166"}}>{t1Form.wins}W-{t1Form.losses}L</div><div className="flex gap-1 mt-2">{t1Recent.map(function(r, i) { var won = r.winnerId === t1.team_id; return <div key={i} className="w-5 h-5 rounded-full flex items-center justify-center" style={{background: won ? "rgba(82,183,136,0.2)" : "rgba(255,107,107,0.15)", fontSize: "8px", fontWeight: 700, color: won ? "#52b788" : "#ff6b6b"}}>{won ? "W" : "L"}</div>; })}</div></div>
+      <div className="rounded-xl p-3 text-center" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}><div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px"}}>Head to head</div>{h2h.length > 0 ? <div><div className="flex items-center justify-center gap-2"><span className="text-xl font-black" style={{color: t1H2HWins >= t2H2HWins ? "#52b788" : "#ff6b6b"}}>{t1H2HWins}</span><span className="text-xs" style={{color: "#444"}}>-</span><span className="text-xl font-black" style={{color: t2H2HWins >= t1H2HWins ? "#52b788" : "#ff6b6b"}}>{t2H2HWins}</span></div><div style={{fontSize: "10px", color: "#555"}}>{h2h.length} series</div></div> : <div className="text-sm" style={{color: "#555"}}>No matches</div>}</div>
+      <div className="rounded-xl p-3 text-right" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}}><div style={{fontSize: "9px", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px"}}>{t2Short} form</div><div className="text-xl font-black" style={{color: t2Form.wins > t2Form.losses ? "#52b788" : t2Form.wins < t2Form.losses ? "#ff6b6b" : "#ffd166"}}>{t2Form.wins}W-{t2Form.losses}L</div><div className="flex gap-1 mt-2 justify-end">{t2Recent.map(function(r, i) { var won = r.winnerId === t2.team_id; return <div key={i} className="w-5 h-5 rounded-full flex items-center justify-center" style={{background: won ? "rgba(82,183,136,0.2)" : "rgba(255,107,107,0.15)", fontSize: "8px", fontWeight: 700, color: won ? "#52b788" : "#ff6b6b"}}>{won ? "W" : "L"}</div>; })}</div></div>
+    </div>
+
+    {/* Mode breakdown */}
+    <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Mode breakdown</div>
+      <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+        <div className="grid items-center py-2 px-3" style={{gridTemplateColumns: "1fr auto 1fr", background: "rgba(255,255,255,0.04)"}}><div className="text-xs font-bold" style={{color: t1Color}}>{t1Short}</div><div className="text-xs opacity-30 px-2">MODE</div><div className="text-xs font-bold text-right" style={{color: t2Color}}>{t2Short}</div></div>
+        {modes.map(function(mode) {
+          var w1 = t1[mode.k] || 0, w2 = t2[mode.k] || 0, kd1 = s(t1, mode.kd), kd2 = s(t2, mode.kd), d1 = s(t1, mode.diff), d2 = s(t2, mode.diff);
+          return <div key={mode.label} style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
+            <div className="flex items-center justify-center px-3 pt-3 pb-1"><div className="text-xs font-bold uppercase tracking-wider" style={{color: "#888"}}>{mode.label}</div></div>
+            <div className="grid grid-cols-3 gap-2 px-3 pb-3">
+              <div className="text-center"><div style={{fontSize: "9px", color: "#555", marginBottom: "2px"}}>Win%</div><div className="flex items-center justify-between"><span className="text-sm font-bold" style={{color: w1 > w2 ? "#52b788" : w1 < w2 ? "#ff6b6b" : "#ffd166"}}>{w1.toFixed(1)}%</span><span className="text-sm font-bold" style={{color: w2 > w1 ? "#52b788" : w2 < w1 ? "#ff6b6b" : "#ffd166"}}>{w2.toFixed(1)}%</span></div></div>
+              <div className="text-center"><div style={{fontSize: "9px", color: "#555", marginBottom: "2px"}}>K/D</div><div className="flex items-center justify-between"><span className="text-sm font-bold" style={{color: kdColor(kd1)}}>{kd1.toFixed(2)}</span><span className="text-sm font-bold" style={{color: kdColor(kd2)}}>{kd2.toFixed(2)}</span></div></div>
+              <div className="text-center"><div style={{fontSize: "9px", color: "#555", marginBottom: "2px"}}>Diff</div><div className="flex items-center justify-between"><span className="text-sm font-bold" style={{color: d1 > 0 ? "#52b788" : "#ff6b6b"}}>{d1 > 0 ? "+" : ""}{d1.toFixed(1)}</span><span className="text-sm font-bold" style={{color: d2 > 0 ? "#52b788" : "#ff6b6b"}}>{d2 > 0 ? "+" : ""}{d2.toFixed(1)}</span></div></div>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>
+
+    {/* Player matchups */}
+    {roleMatchups.length > 0 && <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Player matchups</div><div className="space-y-2">
+      {roleMatchups.map(function(rm, i) {
+        var kd1 = s(rm.p1, "kd"), kd2 = s(rm.p2, "kd");
+        var adv = kd1 > kd2 ? "t1" : kd2 > kd1 ? "t2" : "even";
+        return <div key={i} className="rounded-xl p-3" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
+          <div className="flex items-center justify-between">
+            <div className="flex-1 cursor-pointer" onClick={function() { if (onPlayerClick) onPlayerClick(rm.p1.player_id); }}><div className="flex items-center gap-2"><div className="w-1 h-8 rounded" style={{background: t1Color}} /><div><div className="flex items-center gap-1"><span className="text-sm font-bold text-white">{rm.p1.gamertag}</span><RoleBadge role={rm.p1.role} /></div><div className="flex items-center gap-2 mt-0.5"><span className="text-sm font-bold" style={{color: kdColor(kd1)}}>{kd1.toFixed(2)}</span><span style={{fontSize: "10px", color: "#555"}}>K/D</span></div></div></div></div>
+            <div className="flex flex-col items-center px-3"><div className="w-6 h-6 rounded-full flex items-center justify-center" style={{background: adv === "even" ? "rgba(255,209,102,0.15)" : "rgba(82,183,136,0.15)"}}><span style={{fontSize: "8px", fontWeight: 800, color: adv === "even" ? "#ffd166" : "#52b788"}}>{adv === "t1" ? "\u25C0" : adv === "t2" ? "\u25B6" : "="}</span></div></div>
+            <div className="flex-1 text-right cursor-pointer" onClick={function() { if (onPlayerClick) onPlayerClick(rm.p2.player_id); }}><div className="flex items-center gap-2 justify-end"><div><div className="flex items-center gap-1 justify-end"><RoleBadge role={rm.p2.role} /><span className="text-sm font-bold text-white">{rm.p2.gamertag}</span></div><div className="flex items-center gap-2 mt-0.5 justify-end"><span style={{fontSize: "10px", color: "#555"}}>K/D</span><span className="text-sm font-bold" style={{color: kdColor(kd2)}}>{kd2.toFixed(2)}</span></div></div><div className="w-1 h-8 rounded" style={{background: t2Color}} /></div></div>
+          </div>
+        </div>;
+      })}
+    </div></div>}
+
+    {/* Full stat comparison */}
+    <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Season stats</div>
+      <div className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)"}}>
+        <div className="grid grid-cols-3 items-center py-2 px-3" style={{background: "rgba(255,255,255,0.04)"}}><div className="text-xs font-bold" style={{color: t1Color}}>{t1Short}</div><div className="text-center text-xs opacity-30">stat</div><div className="text-xs font-bold text-right" style={{color: t2Color}}>{t2Short}</div></div>
+        <div style={{padding: "0 8px"}}><H2HRow label="K/D" v1={s(t1, "kd")} v2={s(t2, "kd")} /><H2HRow label="HP Win%" v1={t1.hp_win_pct || 0} v2={t2.hp_win_pct || 0} fmt="pct" /><H2HRow label="SnD Win%" v1={t1.snd_win_pct || 0} v2={t2.snd_win_pct || 0} fmt="pct" /><H2HRow label="OVL Win%" v1={t1.ovl_win_pct || 0} v2={t2.ovl_win_pct || 0} fmt="pct" /><H2HRow label="HP Diff" v1={s(t1, "hp_score_diff")} v2={s(t2, "hp_score_diff")} fmt="0.0" /><H2HRow label="SnD Diff" v1={s(t1, "snd_round_diff")} v2={s(t2, "snd_round_diff")} fmt="0.0" /><H2HRow label="OVL Diff" v1={s(t1, "ovl_score_diff")} v2={s(t2, "ovl_score_diff")} fmt="0.0" /></div>
+      </div>
+    </div>
+
+    {/* Previous meetings */}
+    {h2h.length > 0 && <div className="mb-5"><div className="text-xs uppercase tracking-wider opacity-40 mb-3">Previous meetings</div><div className="space-y-2">
+      {h2h.slice(0, 5).map(function(r) {
+        return <div key={r.id} className="flex items-center justify-between p-3 rounded-xl" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)"}}>
+          <div className="flex items-center gap-2"><div className="w-1 h-5 rounded" style={{background: r.home.id === t1.team_id ? t1Color : t2Color}} /><span className="text-sm font-bold" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.home.short}</span></div>
+          <div className="flex items-center gap-2"><span className="text-lg font-black tabular-nums" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.homeScore}</span><span className="text-xs" style={{color: "#444"}}>-</span><span className="text-lg font-black tabular-nums" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.awayScore}</span></div>
+          <div className="flex items-center gap-2"><span className="text-sm font-bold" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.away.short}</span><div className="w-1 h-5 rounded" style={{background: r.away.id === t1.team_id ? t1Color : t2Color}} /></div>
+        </div>;
+      })}
+    </div></div>}
+
+    {/* CTA */}
+    <div className="rounded-xl p-4 text-center" style={{background: "rgba(233,69,96,0.06)", border: "1px solid rgba(233,69,96,0.15)"}}><div style={{fontSize: "10px", color: "#e94560", fontWeight: 700, letterSpacing: "1px", marginBottom: "8px"}}>READY TO CALL IT?</div><button onClick={function() { if (onMakePick) onMakePick(mu.id); }} className="px-6 py-3 rounded-xl text-sm font-bold transition-all" style={{background: "#e94560", color: "#fff"}}>Make your pick →</button></div>
+  </div>;
+}
+
+// ─── HOME DASHBOARD ─────────────────────────────────────────
+
+function HomeDashboard(props) {
+  var analysis = props.analysis, openTeam = props.openTeam, openPreview = props.openPreview, openCompare = props.openCompare, openLines = props.openLines, openPicks = props.openPicks, openSchedule = props.openSchedule;
+  var nextMatch = analysis.matchups[0] || null;
+
+  return <div>
+    {nextMatch && <div className="mb-6">
+      <div className="flex items-center justify-between mb-2"><span className="text-xs uppercase tracking-widest font-bold" style={{color: "#e94560"}}>Next up</span><span className="text-xs" style={{color: "#555"}}>{utcToET(nextMatch.datetime)}</span></div>
+      <div className="rounded-2xl overflow-hidden cursor-pointer transition-all hover:border-white/10" style={{background: "linear-gradient(135deg, " + ((nextMatch.t1Stats && nextMatch.t1Stats.team_color) || "#888") + "12, rgba(255,255,255,0.03) 50%, " + ((nextMatch.t2Stats && nextMatch.t2Stats.team_color) || "#888") + "12)", border: "1px solid rgba(255,255,255,0.08)"}} onClick={function() { openPreview(nextMatch); }}>
+        <div className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3"><div className="w-2 h-12 rounded-full" style={{background: (nextMatch.t1Stats && nextMatch.t1Stats.team_color) || "#888"}} /><div><div className="text-xl font-black text-white">{(nextMatch.t1 && nextMatch.t1.name_short) || "?"}</div><div className="text-xs" style={{color: "#555"}}>{(nextMatch.p1 && nextMatch.p1.matchWins) || 0}-{(nextMatch.p1 && nextMatch.p1.matchLosses) || 0}</div></div></div>
+            <div className="flex flex-col items-center"><span className="px-3 py-1 rounded-full text-xs font-bold" style={{background: timeUntil(nextMatch.datetime) === "LIVE" ? "#e94560" : "rgba(255,255,255,0.06)", color: timeUntil(nextMatch.datetime) === "LIVE" ? "#fff" : "#888"}}>{timeUntil(nextMatch.datetime)}</span><span className="text-xs mt-1" style={{color: "#52b788"}}>{"\u25B8"} {nextMatch.favored}</span></div>
+            <div className="flex items-center gap-3"><div className="text-right"><div className="text-xl font-black text-white">{(nextMatch.t2 && nextMatch.t2.name_short) || "?"}</div><div className="text-xs" style={{color: "#555"}}>{(nextMatch.p2 && nextMatch.p2.matchWins) || 0}-{(nextMatch.p2 && nextMatch.p2.matchLosses) || 0}</div></div><div className="w-2 h-12 rounded-full" style={{background: (nextMatch.t2Stats && nextMatch.t2Stats.team_color) || "#888"}} /></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "9px", color: "#555"}}>K/D</div><div className="flex items-center justify-between px-2"><span className="text-sm font-bold" style={{color: kdColor(s(nextMatch.t1Stats, "kd"))}}>{s(nextMatch.t1Stats, "kd").toFixed(2)}</span><span className="text-sm font-bold" style={{color: kdColor(s(nextMatch.t2Stats, "kd"))}}>{s(nextMatch.t2Stats, "kd").toFixed(2)}</span></div></div>
+            <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "9px", color: "#555"}}>HP Win%</div><div className="flex items-center justify-between px-2"><span className="text-sm font-bold" style={{color: (nextMatch.t1Stats || {}).hp_win_pct > 50 ? "#52b788" : "#ff6b6b"}}>{((nextMatch.t1Stats || {}).hp_win_pct || 0).toFixed(0)}%</span><span className="text-sm font-bold" style={{color: (nextMatch.t2Stats || {}).hp_win_pct > 50 ? "#52b788" : "#ff6b6b"}}>{((nextMatch.t2Stats || {}).hp_win_pct || 0).toFixed(0)}%</span></div></div>
+            <div className="rounded-lg p-2 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "9px", color: "#555"}}>SnD Win%</div><div className="flex items-center justify-between px-2"><span className="text-sm font-bold" style={{color: (nextMatch.t1Stats || {}).snd_win_pct > 50 ? "#52b788" : "#ff6b6b"}}>{((nextMatch.t1Stats || {}).snd_win_pct || 0).toFixed(0)}%</span><span className="text-sm font-bold" style={{color: (nextMatch.t2Stats || {}).snd_win_pct > 50 ? "#52b788" : "#ff6b6b"}}>{((nextMatch.t2Stats || {}).snd_win_pct || 0).toFixed(0)}%</span></div></div>
+          </div>
+          <div className="flex items-center justify-center mt-3"><span className="text-xs font-semibold" style={{color: "#e94560"}}>Full match preview →</span></div>
+        </div>
+      </div>
+    </div>}
+
+    <div className="mb-6"><div className="text-xs uppercase tracking-widest font-bold mb-3" style={{color: "#888"}}>Tools</div>
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={openCompare} className="rounded-xl p-3 text-center transition-all hover:border-white/15" style={{background: "rgba(233,69,96,0.06)", border: "1px solid rgba(233,69,96,0.12)"}}><div className="text-lg mb-1">{"\u2694\uFE0F"}</div><div className="text-xs font-bold" style={{color: "#e94560"}}>Compare</div><div style={{fontSize: "9px", color: "#555", marginTop: "2px"}}>H2H players</div></button>
+        <button onClick={openLines} className="rounded-xl p-3 text-center transition-all hover:border-white/15" style={{background: "rgba(82,183,136,0.06)", border: "1px solid rgba(82,183,136,0.12)"}}><div className="text-lg mb-1">{"\uD83C\uDFB0"}</div><div className="text-xs font-bold" style={{color: "#52b788"}}>Line check</div><div style={{fontSize: "9px", color: "#555", marginTop: "2px"}}>Over/under</div></button>
+        <button onClick={openPicks} className="rounded-xl p-3 text-center transition-all hover:border-white/15" style={{background: "rgba(83,168,182,0.06)", border: "1px solid rgba(83,168,182,0.12)"}}><div className="text-lg mb-1">{"\uD83D\uDCCB"}</div><div className="text-xs font-bold" style={{color: "#53a8b6"}}>Picks</div><div style={{fontSize: "9px", color: "#555", marginTop: "2px"}}>Predict series</div></button>
+      </div>
+    </div>
+
+    <WhosHot topKd={analysis.topKd} topHpK={analysis.topHpK} topSndKpr={analysis.topSndKpr} />
+
+    {analysis.results && analysis.results.length > 0 && <div className="mb-6"><div className="text-xs uppercase tracking-widest font-bold mb-3" style={{color: "#888"}}>Recent results</div><div className="space-y-1.5">
+      {analysis.results.slice(0, 5).map(function(r) { return <div key={r.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl" style={{background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.04)"}}><div className="flex items-center gap-2 flex-1"><div className="w-1 h-5 rounded" style={{background: r.home.color}} /><span className="text-sm font-bold" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.home.short}</span></div><div className="flex items-center gap-1.5"><span className="text-base font-black tabular-nums" style={{color: r.homeWon ? "#fff" : "#555"}}>{r.homeScore}</span><span style={{fontSize: "10px", color: "#333"}}>-</span><span className="text-base font-black tabular-nums" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.awayScore}</span></div><div className="flex items-center gap-2 flex-1 justify-end"><span className="text-sm font-bold" style={{color: r.awayWon ? "#fff" : "#555"}}>{r.away.short}</span><div className="w-1 h-5 rounded" style={{background: r.away.color}} /></div></div>; })}
+    </div><button onClick={openSchedule} className="w-full mt-2 py-2 rounded-xl text-xs font-bold" style={{background: "rgba(255,255,255,0.03)", color: "#888", border: "1px solid rgba(255,255,255,0.06)"}}>View all matches →</button></div>}
+
+    {analysis.matchups.length > 1 && <div><div className="text-xs uppercase tracking-widest font-bold mb-3" style={{color: "#888"}}>Upcoming</div><div className="space-y-2">
+      {analysis.matchups.slice(1, 8).map(function(mu) { var t1S = (mu.t1 && mu.t1.name_short) || "?"; var t2S = (mu.t2 && mu.t2.name_short) || "?"; return <div key={mu.id} className="flex items-center justify-between p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-colors" style={{background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.04)"}} onClick={function() { openPreview(mu); }}><div className="flex items-center gap-2"><div className="w-1 h-6 rounded" style={{background: (mu.t1Stats && mu.t1Stats.team_color) || "#888"}} /><span className="text-sm font-bold text-white">{t1S}</span><span className="text-xs" style={{color: "#444"}}>vs</span><span className="text-sm font-bold text-white">{t2S}</span><div className="w-1 h-6 rounded" style={{background: (mu.t2Stats && mu.t2Stats.team_color) || "#888"}} /></div><div className="flex items-center gap-2"><span className="text-xs" style={{color: "#555"}}>{timeUntil(mu.datetime)}</span><span className="text-xs" style={{color: "#e94560"}}>→</span></div></div>; })}
+    </div></div>}
+  </div>;
+}
+
 // ─── UNIFIED PLAYERS TAB ─────────────────────────────────────
 
 function PlayersTab(props) {
@@ -2464,20 +2643,21 @@ function TeamsTab(props) {
 
 // ─── MAIN APP ────────────────────────────────────────────────
 
-var TABS = ["Matches", "Teams", "Players", "Picks", "Search"];
+var TABS = ["Home", "Matches", "Teams", "Players", "Picks", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
   var picksParam = urlParams.get("picks");
-  var [tab, setTab] = useState(compareParam ? "Players" : lineParam ? "Players" : picksParam ? "Picks" : "Matches");
+  var [tab, setTab] = useState(compareParam ? "Players" : lineParam ? "Players" : picksParam ? "Picks" : "Home");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
   var [teamPageId, setTeamPageId] = useState(null);
   var [playerSubView, setPlayerSubView] = useState(compareParam ? "compare" : lineParam ? "lines" : "leaderboard");
   var [selectedPlayerId, setSelectedPlayerId] = useState(null);
+  var [previewMatchup, setPreviewMatchup] = useState(null);
 
   var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
   var closeTeam = function() { setTeamPageId(null); };
@@ -2532,11 +2712,18 @@ export default function App() {
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>
-        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); if (t !== "Players") setSelectedPlayerId(null); if (t === "Players" && playerSubView !== "leaderboard" && !compareParam && !lineParam) setPlayerSubView("leaderboard"); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
+        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); setPreviewMatchup(null); if (t !== "Teams") setTeamPageId(null); if (t !== "Players") setSelectedPlayerId(null); if (t === "Players" && playerSubView !== "leaderboard" && !compareParam && !lineParam) setPlayerSubView("leaderboard"); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
-      {tab === "Matches" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
+      {tab === "Home" && (previewMatchup
+        ? <MatchPreview matchup={previewMatchup} analysis={analysis} onBack={function() { setPreviewMatchup(null); }} onTeamClick={openTeam} onPlayerClick={openPlayer} onMakePick={function() { setTab("Picks"); setPreviewMatchup(null); }} />
+        : <HomeDashboard analysis={analysis} openTeam={openTeam} openPreview={function(mu) { setPreviewMatchup(mu); }} openCompare={function() { setTab("Players"); setPlayerSubView("compare"); }} openLines={function() { setTab("Players"); setPlayerSubView("lines"); }} openPicks={function() { setTab("Picks"); }} openSchedule={function() { setTab("Matches"); }} openPlayer={openPlayer} />
+      )}
+      {tab === "Matches" && (previewMatchup
+        ? <MatchPreview matchup={previewMatchup} analysis={analysis} onBack={function() { setPreviewMatchup(null); }} onTeamClick={openTeam} onPlayerClick={openPlayer} onMakePick={function() { setTab("Picks"); setPreviewMatchup(null); }} />
+        : <ScheduleTab analysis={analysis} openTeam={openTeam} openPreview={function(mu) { setPreviewMatchup(mu); }} />
+      )}
       {tab === "Teams" && <TeamsTab analysis={analysis} teamPageId={teamPageId} setTeamPageId={setTeamPageId} onBack={closeTeam} />}
       {tab === "Players" && <PlayersTab analysis={analysis} subView={playerSubView} setSubView={setPlayerSubView} initialCompare={compareParam} initialLine={lineParam} selectedPlayerId={selectedPlayerId} openPlayer={openPlayer} closePlayer={closePlayer} openTeam={openTeam} openCompare={openCompare} openLines={openLines} />}
       {tab === "Picks" && <PicksTab analysis={analysis} />}

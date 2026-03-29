@@ -2407,6 +2407,52 @@ function MatchPreview(props) {
   var cd = timeUntil(mu.datetime);
   var modes = [{label: "Hardpoint", k: "hp_win_pct", kd: "hp_kd", diff: "hp_score_diff"}, {label: "SnD", k: "snd_win_pct", kd: "snd_kd", diff: "snd_round_diff"}, {label: "Overload", k: "ovl_win_pct", kd: "ovl_kd", diff: "ovl_score_diff"}];
 
+  var [sharing, setSharing] = useState(false);
+  var [linkCopied, setLinkCopied] = useState(false);
+
+  var buildShareUrl = function() {
+    return window.location.origin + window.location.pathname + "?preview=" + mu.id;
+  };
+
+  var handleShareImage = function() {
+    if (sharing) return;
+    setSharing(true);
+    var shareData = {
+      t1Short: t1Short, t1Name: t1Name, t1Color: t1Color,
+      t2Short: t2Short, t2Name: t2Name, t2Color: t2Color,
+      eventName: (mu.event && mu.event.name_short) || "",
+      datetime: mu.datetime, bestOf: mu.bestOf,
+      favored: mu.favored, edge: mu.edge,
+      p1Score: p1.score || 0, p2Score: p2.score || 0,
+      t1Form: t1Form, t2Form: t2Form,
+      h2h: {t1Wins: t1H2HWins, t2Wins: t2H2HWins, total: h2h.length},
+      modes: modes.map(function(mode) {
+        return {label: mode.label, w1: t1[mode.k] || 0, w2: t2[mode.k] || 0, kd1: s(t1, mode.kd), kd2: s(t2, mode.kd), d1: s(t1, mode.diff), d2: s(t2, mode.diff)};
+      }),
+      roleMatchups: roleMatchups.map(function(rm) {
+        return {p1Name: rm.p1.gamertag, p1Role: rm.p1.role, p1Kd: s(rm.p1, "kd"), p2Name: rm.p2.gamertag, p2Role: rm.p2.role, p2Kd: s(rm.p2, "kd")};
+      }),
+      stats: [
+        {label: "K/D", v1: s(t1, "kd"), v2: s(t2, "kd")},
+        {label: "HP Win%", v1: t1.hp_win_pct || 0, v2: t2.hp_win_pct || 0, fmt: "pct"},
+        {label: "SnD Win%", v1: t1.snd_win_pct || 0, v2: t2.snd_win_pct || 0, fmt: "pct"},
+        {label: "OVL Win%", v1: t1.ovl_win_pct || 0, v2: t2.ovl_win_pct || 0, fmt: "pct"},
+        {label: "HP Diff", v1: s(t1, "hp_score_diff"), v2: s(t2, "hp_score_diff"), fmt: "0.0"},
+        {label: "SnD Diff", v1: s(t1, "snd_round_diff"), v2: s(t2, "snd_round_diff"), fmt: "0.0"}
+      ]
+    };
+    import("./shareRenderer.js").then(function(mod) {
+      return mod.sharePreviewImage(shareData, buildShareUrl());
+    }).catch(function(e) { console.error("Share error:", e); }).finally(function() { setSharing(false); });
+  };
+
+  var handleCopyLink = function() {
+    var url = buildShareUrl();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() { setLinkCopied(true); setTimeout(function() { setLinkCopied(false); }, 2000); }).catch(function() { prompt("Copy this link:", url); });
+    } else { prompt("Copy this link:", url); }
+  };
+
   return <div>
     <button onClick={onBack} className="text-sm mb-4 hover:underline" style={{color: "#e94560"}}>{"\u2190"} back</button>
 
@@ -2492,6 +2538,18 @@ function MatchPreview(props) {
         </div>;
       })}
     </div></div>}
+
+    {/* Share buttons */}
+    <div className="flex gap-2 mb-5">
+      <button onClick={handleShareImage} disabled={sharing} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: sharing ? "rgba(233,69,96,0.3)" : "#e94560", color: "#fff", opacity: sharing ? 0.7 : 1}}>
+        {sharing ? <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor: "#fff", borderTopColor: "transparent"}} /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>}
+        <span>{sharing ? "Generating..." : "Share preview"}</span>
+      </button>
+      <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold" style={{background: linkCopied ? "rgba(82,183,136,0.15)" : "rgba(255,255,255,0.06)", border: linkCopied ? "1px solid rgba(82,183,136,0.3)" : "1px solid rgba(255,255,255,0.1)", color: linkCopied ? "#52b788" : "#c8c8d0"}}>
+        {linkCopied ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+        <span>{linkCopied ? "Copied!" : "Copy link"}</span>
+      </button>
+    </div>
 
     {/* CTA */}
     <div className="rounded-xl p-4 text-center" style={{background: "rgba(233,69,96,0.06)", border: "1px solid rgba(233,69,96,0.15)"}}><div style={{fontSize: "10px", color: "#e94560", fontWeight: 700, letterSpacing: "1px", marginBottom: "8px"}}>READY TO CALL IT?</div><button onClick={function() { if (onMakePick) onMakePick(mu.id); }} className="px-6 py-3 rounded-xl text-sm font-bold transition-all" style={{background: "#e94560", color: "#fff"}}>Make your pick →</button></div>
@@ -2650,7 +2708,8 @@ export default function App() {
   var compareParam = urlParams.get("compare");
   var lineParam = urlParams.get("line");
   var picksParam = urlParams.get("picks");
-  var [tab, setTab] = useState(compareParam ? "Players" : lineParam ? "Players" : picksParam ? "Picks" : "Home");
+  var previewParam = urlParams.get("preview");
+  var [tab, setTab] = useState(compareParam ? "Players" : lineParam ? "Players" : picksParam ? "Picks" : previewParam ? "Home" : "Home");
   var [loading, setLoading] = useState(true);
   var [error, setError] = useState(null);
   var [analysis, setAnalysis] = useState(null);
@@ -2699,6 +2758,18 @@ export default function App() {
     localStorage.setItem("barracks_no_track", "true");
   }
 }, []);
+
+  // Open preview from ?preview=<matchId> deep link
+  useEffect(function() {
+    if (!analysis || !previewParam) return;
+    var matchId = Number(previewParam);
+    if (!matchId) return;
+    var found = analysis.matchups.find(function(mu) { return mu.id === matchId; });
+    if (found) {
+      setPreviewMatchup(found);
+      setTab("Home");
+    }
+  }, [analysis, previewParam]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{background: "#0d0d1a"}}><div className="text-center space-y-3"><div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-sm" style={{color: "#888"}}>Loading CDL data...</p></div></div>;
 

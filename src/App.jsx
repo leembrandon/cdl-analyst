@@ -2096,153 +2096,9 @@ function PicksTab(props) {
   </div>;
 }
 
-// ─── REDDIT FEED ────────────────────────────────────────────
-
-var FEED_SUBS = [
-  {id: "CoDCompetitive", label: "r/CoDCompetitive"},
-  {id: "CallOfDuty", label: "r/CallOfDuty"}
-];
-var FEED_SORTS = [
-  {id: "hot", label: "Hot"},
-  {id: "new", label: "New"},
-  {id: "top", label: "Top"},
-  {id: "rising", label: "Rising"}
-];
-
-async function fetchRedditFeed(sub, sort) {
-  var res = await fetch("/api/reddit?sub=" + encodeURIComponent(sub) + "&sort=" + encodeURIComponent(sort) + "&limit=25");
-  if (!res.ok) throw new Error("Feed fetch failed (" + res.status + ")");
-  return res.json();
-}
-
-function timeAgo(dateStr) {
-  var d = new Date(dateStr);
-  var now = new Date();
-  var diff = Math.floor((now - d) / 1000);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-  if (diff < 604800) return Math.floor(diff / 86400) + "d ago";
-  return d.toLocaleDateString("en-US", {month: "short", day: "numeric"});
-}
-
-function FeedCard(props) {
-  var post = props.post;
-  var hasThumb = post.thumbnail && post.thumbnail.indexOf("http") === 0 && post.thumbnail.indexOf("reddit.com/awards") === -1;
-  var [thumbFailed, setThumbFailed] = useState(false);
-  var showThumb = hasThumb && !thumbFailed;
-
-  return <a href={post.link} target="_blank" rel="noopener noreferrer" className="block rounded-xl p-4 transition-all" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)"}} onMouseEnter={function(e) { e.currentTarget.style.background = "rgba(233,69,96,0.06)"; e.currentTarget.style.borderColor = "rgba(233,69,96,0.2)"; }} onMouseLeave={function(e) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}>
-    <div className="flex gap-3">
-      {showThumb ? <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.05)"}}>
-        <img src={post.thumbnail} alt="" className="w-full h-full object-cover" onError={function() { setThumbFailed(true); }} />
-      </div> : <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{background: "rgba(233,69,96,0.08)"}}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      </div>}
-      <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-bold text-white leading-snug mb-1" style={{display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"}}>{post.title}</h3>
-        {post.preview && <p className="text-xs leading-relaxed mb-2" style={{color: "#777", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"}}>{post.preview}</p>}
-        <div className="flex items-center gap-2 flex-wrap">
-          {post.category && <span className="text-xs font-semibold px-1.5 py-0.5 rounded" style={{background: "rgba(233,69,96,0.12)", color: "#e94560", fontSize: "10px"}}>{post.category}</span>}
-          <span style={{fontSize: "10px", color: "#555"}}>u/{post.author}</span>
-          <span style={{fontSize: "10px", color: "#444"}}>{timeAgo(post.updated)}</span>
-        </div>
-      </div>
-      <div className="flex-shrink-0 self-center opacity-30">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      </div>
-    </div>
-  </a>;
-}
-
-function FeedTab() {
-  var [activeSub, setActiveSub] = useState("CoDCompetitive");
-  var [activeSort, setActiveSort] = useState("hot");
-  var [posts, setPosts] = useState([]);
-  var [feedLoading, setFeedLoading] = useState(true);
-  var [feedError, setFeedError] = useState(null);
-
-  useEffect(function() {
-    var cancelled = false;
-    setFeedLoading(true);
-    setFeedError(null);
-    fetchRedditFeed(activeSub, activeSort).then(function(data) {
-      if (!cancelled) {
-        setPosts(data.entries || []);
-        setFeedLoading(false);
-      }
-    }).catch(function(e) {
-      if (!cancelled) {
-        setFeedError(e.message);
-        setFeedLoading(false);
-      }
-    });
-    return function() { cancelled = true; };
-  }, [activeSub, activeSort]);
-
-  return <div>
-    <div className="mb-4">
-      <h2 className="text-lg font-bold text-white mb-1">Reddit feed</h2>
-      <p className="text-xs" style={{color: "#555"}}>Latest CoD discussion from Reddit</p>
-    </div>
-
-    {/* Subreddit selector */}
-    <div className="flex flex-wrap gap-1.5 mb-3">
-      {FEED_SUBS.map(function(sub) {
-        var isActive = sub.id === activeSub;
-        return <button key={sub.id} onClick={function() { setActiveSub(sub.id); }} className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all" style={{
-          background: isActive ? "rgba(233,69,96,0.2)" : "rgba(255,255,255,0.04)",
-          color: isActive ? "#e94560" : "#666",
-          border: isActive ? "1px solid rgba(233,69,96,0.3)" : "1px solid rgba(255,255,255,0.06)"
-        }}>{sub.label}</button>;
-      })}
-    </div>
-
-    {/* Sort selector */}
-    <div className="flex gap-1 mb-4">
-      {FEED_SORTS.map(function(sort) {
-        var isActive = sort.id === activeSort;
-        return <button key={sort.id} onClick={function() { setActiveSort(sort.id); }} className="px-2.5 py-1 rounded-md text-xs font-semibold transition-all" style={{
-          background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
-          color: isActive ? "#c8c8d0" : "#555"
-        }}>{sort.label}</button>;
-      })}
-    </div>
-
-    {/* Feed content */}
-    {feedLoading && <div className="flex items-center justify-center py-12">
-      <div className="text-center space-y-3">
-        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} />
-        <p className="text-xs" style={{color: "#555"}}>Loading posts...</p>
-      </div>
-    </div>}
-
-    {feedError && <div className="rounded-xl p-4 text-center" style={{background: "rgba(233,69,96,0.08)", border: "1px solid rgba(233,69,96,0.2)"}}>
-      <p className="text-sm font-bold mb-1" style={{color: "#e94560"}}>Failed to load feed</p>
-      <p className="text-xs" style={{color: "#777"}}>{feedError}</p>
-      <button onClick={function() { setActiveSort(activeSort); }} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold" style={{background: "#e94560", color: "#fff"}}>Retry</button>
-    </div>}
-
-    {!feedLoading && !feedError && posts.length === 0 && <div className="text-center py-12 opacity-30">
-      <p className="text-sm">No posts found</p>
-    </div>}
-
-    {!feedLoading && !feedError && posts.length > 0 && <div className="space-y-2">
-      {posts.map(function(post, idx) {
-        return <FeedCard key={post.id || idx} post={post} />;
-      })}
-      <div className="text-center pt-4 pb-2">
-        <a href={"https://www.reddit.com/r/" + activeSub + "/" + activeSort} target="_blank" rel="noopener noreferrer" className="text-xs font-bold px-4 py-2 rounded-lg inline-block transition-all" style={{background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#888"}} onMouseEnter={function(e) { e.currentTarget.style.color = "#e94560"; }} onMouseLeave={function(e) { e.currentTarget.style.color = "#888"; }}>
-          View more on Reddit &rarr;
-        </a>
-      </div>
-    </div>}
-  </div>;
-}
-
 // ─── MAIN APP ────────────────────────────────────────────────
 
-var TABS = ["Schedule", "Feed", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
+var TABS = ["Schedule", "Picks", "Rankings", "Teams", "Compare", "Players", "Lines", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
@@ -2311,7 +2167,6 @@ export default function App() {
       {tab === "Compare" && <div><h2 className="text-lg font-bold text-white mb-4">Player comparison</h2><PlayerCompare analysis={analysis} initialCompare={compareParam} /></div>}
       {tab === "Players" && <div><h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2><PlayerLeaderboard analysis={analysis} /></div>}
       {tab === "Lines" && <div><CDLLinesTab analysis={analysis} /></div>}
-      {tab === "Feed" && <FeedTab />}
       {tab === "Search" && <div><h2 className="text-lg font-bold text-white mb-4">Player lookup</h2><PlayerSearch analysis={analysis} /></div>}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>

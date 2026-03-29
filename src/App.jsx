@@ -812,25 +812,109 @@ function TeamsGrid(props) {
   </div>;
 }
 
-function PlayerSearch(props) {
+function SearchTab(props) {
   var analysis = props.analysis;
+  var openTeam = props.openTeam;
+  var openPlayer = props.openPlayer;
+  var openCompare = props.openCompare;
+  var openLines = props.openLines;
   var [query, setQuery] = useState("");
   var [selected, setSelected] = useState(null);
-  var results = useMemo(function() {
+
+  // Search both players and teams
+  var playerResults = useMemo(function() {
     if (query.length < 2) return [];
     var q = query.toLowerCase();
-    return analysis.playerStats.filter(function(p) { return (p.gamertag && p.gamertag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1); }).slice(0, 12);
+    return analysis.playerStats.filter(function(p) {
+      return (p.gamertag && p.gamertag.toLowerCase().indexOf(q) !== -1) || (p.team_name && p.team_name.toLowerCase().indexOf(q) !== -1);
+    }).slice(0, 8);
   }, [query, analysis]);
 
-  return <div className="space-y-3">
-    <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); setSelected(null); }} placeholder="Search player or team..." className="w-full p-3 rounded-lg text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px"}} />
-    {results.length > 0 && !selected && <div className="space-y-1">{results.map(function(p) {
-      return <div key={p.player_id} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5" onClick={function() { setSelected(p); }}>
-        <span className="font-bold text-white">{p.gamertag}</span><RoleBadge role={p.role} /><span className="text-xs opacity-50">{p.team_abbr || p.team_short}</span><span className="ml-auto"><KdBadge kd={s(p, "kd")} size="sm" /></span>
-      </div>;
-    })}</div>}
+  var teamResults = useMemo(function() {
+    if (query.length < 2) return [];
+    var q = query.toLowerCase();
+    // Search through majorStandings for CDL teams (has team_name, team_abbr, team_color)
+    return (analysis.majorStandings || []).filter(function(t) {
+      return (t.team_name && t.team_name.toLowerCase().indexOf(q) !== -1) || (t.team_abbr && t.team_abbr.toLowerCase().indexOf(q) !== -1);
+    }).slice(0, 6);
+  }, [query, analysis]);
+
+  var hasResults = playerResults.length > 0 || teamResults.length > 0;
+
+  return <div>
+    <h2 className="text-lg font-bold text-white mb-1">Search</h2>
+    <p className="text-xs opacity-40 mb-4">Find any CDL player or team</p>
+
+    {/* Search input */}
+    <div className="relative mb-4">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" value={query} onChange={function(e) { setQuery(e.target.value); setSelected(null); }} placeholder="Search player or team..." className="w-full py-3 pr-4 rounded-xl text-white placeholder-gray-500 outline-none" style={{background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", fontSize: "16px", paddingLeft: "42px"}} />
+      {query.length > 0 && <button onClick={function() { setQuery(""); setSelected(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs opacity-40 hover:opacity-80 px-2 py-1 rounded" style={{background: "rgba(255,255,255,0.06)"}}>Clear</button>}
+    </div>
+
+    {/* Results */}
+    {query.length >= 2 && !selected && <div>
+      {/* Team results */}
+      {teamResults.length > 0 && <div className="mb-4">
+        <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{color: "#555"}}>Teams</div>
+        <div className="space-y-1">
+          {teamResults.map(function(t) {
+            var ts = analysis.teamStats[t.team_id] || {};
+            var color = ts.team_color || t.team_color || "#888";
+            return <div key={t.team_id} className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-colors" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}} onClick={function() { openTeam(t.team_id); }}>
+              <div className="w-1.5 h-8 rounded-full flex-shrink-0" style={{background: color}} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-white truncate">{t.team_name}</div>
+                <div className="text-xs" style={{color: "#555"}}>{t.team_abbr} · #{t.rank} · {t.series_wins}-{t.series_losses}</div>
+              </div>
+              <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{background: "rgba(233,69,96,0.08)", color: "#e94560"}}>View team {"\u2192"}</span>
+            </div>;
+          })}
+        </div>
+      </div>}
+
+      {/* Player results */}
+      {playerResults.length > 0 && <div>
+        <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{color: "#555"}}>Players</div>
+        <div className="space-y-1">
+          {playerResults.map(function(p) {
+            return <div key={p.player_id} className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}}>
+              <div className="flex items-center gap-3 p-3 cursor-pointer hover:bg-white/5 transition-colors" onClick={function() { setSelected(p); }}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-white truncate">{p.gamertag}</span><RoleBadge role={p.role} /></div>
+                  <span className="text-xs" style={{color: "#555"}}>{p.team_name || p.team_abbr || ""}</span>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-sm font-bold" style={{color: kdColor(s(p, "kd"))}}>{s(p, "kd").toFixed(2)}</div>
+                  <div style={{fontSize: "10px", color: "#555"}}>K/D</div>
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
+
+      {!hasResults && <div className="text-center py-8 opacity-30"><p className="text-sm">No results for "{query}"</p></div>}
+    </div>}
+
+    {/* Selected player detail */}
     {selected && <div className="space-y-3">
-      <div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold text-white">{selected.gamertag}</h3><RoleBadge role={selected.role} /></div><span className="text-sm opacity-50">{selected.team_name}</span></div><button onClick={function() { setSelected(null); }} className="text-xs opacity-50 hover:opacity-100">{"\u2715"} clear</button></div>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2"><h3 className="text-xl font-bold text-white">{selected.gamertag}</h3><RoleBadge role={selected.role} /></div>
+          <span className="text-sm opacity-50">{selected.team_name}</span>
+        </div>
+        <button onClick={function() { setSelected(null); }} className="text-xs opacity-50 hover:opacity-100 px-2 py-1 rounded" style={{background: "rgba(255,255,255,0.06)"}}>Back to results</button>
+      </div>
+
+      {/* Quick actions */}
+      <div className="flex gap-2">
+        <button onClick={function() { openCompare(selected.gamertag); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(233,69,96,0.1)", color: "#e94560", border: "1px solid rgba(233,69,96,0.2)"}}>Compare</button>
+        <button onClick={function() { openLines(selected.gamertag); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(82,183,136,0.1)", color: "#52b788", border: "1px solid rgba(82,183,136,0.2)"}}>Line check</button>
+        {selected.team_id && <button onClick={function() { openTeam(selected.team_id); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(83,168,182,0.1)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>View team</button>}
+      </div>
+
+      {/* Full stat card */}
       <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.03)"}}>
         <div className="grid grid-cols-3 gap-3 pb-3 mb-2" style={{borderBottom: "1px solid rgba(255,255,255,0.04)"}}>
           <Stat label="Overall K/D" value={s(selected, "kd")} /><Stat label="DMG/10m" value={s(selected, "dmg_per_10m")} fmt="0.0" /><Stat label="FB%" value={s(selected, "first_blood_pct") * 100} fmt="0.0" />
@@ -848,6 +932,13 @@ function PlayerSearch(props) {
           <Stat label="OVL K/D" value={s(selected, "ovl_kd")} /><Stat label="K/10" value={s(selected, "ovl_kills_per_10m")} fmt="0.0" /><Stat label="D/10" value={s(selected, "ovl_deaths_per_10m")} fmt="0.0" /><Stat label="DMG/10" value={s(selected, "ovl_damage_per_10m")} fmt="0.0" /><Stat label="ENG/10" value={s(selected, "ovl_engagements_10m")} fmt="0.0" />
         </div>
       </div>
+    </div>}
+
+    {/* Empty state — show when no query */}
+    {query.length < 2 && !selected && <div className="text-center py-12">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <p className="text-sm" style={{color: "#555"}}>Search for any CDL player or team</p>
+      <p className="text-xs mt-1" style={{color: "#444"}}>Try a gamertag, team name, or abbreviation</p>
     </div>}
   </div>;
 }
@@ -2181,7 +2272,7 @@ function TeamsTab(props) {
 
 // ─── MAIN APP ────────────────────────────────────────────────
 
-var TABS = ["Matches", "Teams", "Players", "Picks"];
+var TABS = ["Matches", "Teams", "Players", "Picks", "Search"];
 
 export default function App() {
   var urlParams = useMemo(function() { try { return new URLSearchParams(window.location.search); } catch(e) { return new URLSearchParams(); } }, []);
@@ -2197,6 +2288,19 @@ export default function App() {
 
   var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
   var closeTeam = function() { setTeamPageId(null); };
+
+  // Cross-navigation helpers for SearchTab
+  var openCompare = function(gamertag) {
+    setTab("Players");
+    setPlayerSubView("compare");
+    // Update URL so PlayerCompare picks it up
+    window.history.replaceState(null, "", window.location.pathname + "?compare=" + encodeURIComponent(gamertag) + ",");
+  };
+  var openLines = function(gamertag) {
+    setTab("Players");
+    setPlayerSubView("lines");
+    window.history.replaceState(null, "", window.location.pathname + "?line=" + encodeURIComponent(gamertag) + ",map1,over,,10");
+  };
 
   useEffect(function() {
     (async function() {
@@ -2240,6 +2344,7 @@ export default function App() {
       {tab === "Teams" && <TeamsTab analysis={analysis} teamPageId={teamPageId} setTeamPageId={setTeamPageId} onBack={closeTeam} />}
       {tab === "Players" && <PlayersTab analysis={analysis} subView={playerSubView} setSubView={setPlayerSubView} initialCompare={compareParam} initialLine={lineParam} />}
       {tab === "Picks" && <PicksTab analysis={analysis} />}
+      {tab === "Search" && <SearchTab analysis={analysis} openTeam={openTeam} openCompare={openCompare} openLines={openLines} />}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>
   </div>;

@@ -812,6 +812,183 @@ function TeamsGrid(props) {
   </div>;
 }
 
+// ─── PLAYER PROFILE PAGE ────────────────────────────────────
+
+function PlayerProfilePage(props) {
+  var player = props.player;
+  var analysis = props.analysis;
+  var onBack = props.onBack;
+  var openTeam = props.openTeam;
+  var openCompare = props.openCompare;
+  var openLines = props.openLines;
+
+  var [matchHistory, setMatchHistory] = useState(null);
+  var [loading, setLoading] = useState(true);
+
+  var teamColor = (function() {
+    var ts = analysis.teamStats[player.team_id];
+    return (ts && ts.team_color) || "#888";
+  })();
+
+  // Compute leaderboard rank
+  var kdRank = useMemo(function() {
+    var sorted = analysis.playerStats.slice().sort(function(a, b) { return s(b, "kd") - s(a, "kd"); });
+    for (var i = 0; i < sorted.length; i++) {
+      if (sorted[i].player_id === player.player_id) return i + 1;
+    }
+    return null;
+  }, [analysis, player.player_id]);
+
+  useEffect(function() {
+    (async function() {
+      try {
+        setLoading(true);
+        var results = await fetchPlayerMatchStats(player.player_id);
+        setMatchHistory(results || []);
+      } catch(e) { console.error(e); setMatchHistory([]); }
+      finally { setLoading(false); }
+    })();
+  }, [player.player_id]);
+
+  // Compute recent form from match history
+  var recentForm = useMemo(function() {
+    if (!matchHistory || matchHistory.length === 0) return null;
+    var last5 = matchHistory.slice(0, 5);
+    var wins = 0, totalKills = 0, totalDeaths = 0;
+    last5.forEach(function(m) {
+      if (m.won_series) wins++;
+      totalKills += (m.kills || 0);
+      totalDeaths += (m.deaths || 0);
+    });
+    return {
+      games: last5.length,
+      wins: wins,
+      losses: last5.length - wins,
+      kd: totalDeaths > 0 ? totalKills / totalDeaths : totalKills,
+      streak: (function() {
+        var st = 0;
+        var firstResult = last5[0] && last5[0].won_series;
+        for (var i = 0; i < last5.length; i++) {
+          if (last5[i].won_series === firstResult) st++;
+          else break;
+        }
+        return {count: st, winning: firstResult};
+      })()
+    };
+  }, [matchHistory]);
+
+  return <div>
+    <button onClick={onBack} className="text-sm mb-4 hover:underline" style={{color: "#e94560"}}>{"\u2190"} back</button>
+
+    {/* Header */}
+    <div className="flex items-center gap-4 mb-5 pb-5" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
+      <div className="w-1.5 h-12 rounded" style={{background: teamColor}} />
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-black text-white">{player.gamertag}</h2>
+          <RoleBadge role={player.role} />
+        </div>
+        <button onClick={function() { if (player.team_id) openTeam(player.team_id); }} className="text-sm hover:underline" style={{color: teamColor}}>{player.team_name || player.team_abbr || ""}</button>
+      </div>
+      <div className="text-center">
+        <div className="text-2xl font-black" style={{color: kdColor(s(player, "kd"))}}>{s(player, "kd").toFixed(2)}</div>
+        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>K/D</div>
+      </div>
+    </div>
+
+    {/* Quick actions */}
+    <div className="flex gap-2 mb-5">
+      <button onClick={function() { openCompare(player.gamertag); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(233,69,96,0.1)", color: "#e94560", border: "1px solid rgba(233,69,96,0.2)"}}>Compare</button>
+      <button onClick={function() { openLines(player.gamertag); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(82,183,136,0.1)", color: "#52b788", border: "1px solid rgba(82,183,136,0.2)"}}>Line check</button>
+      {player.team_id && <button onClick={function() { openTeam(player.team_id); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all" style={{background: "rgba(83,168,182,0.1)", color: "#53a8b6", border: "1px solid rgba(83,168,182,0.2)"}}>View team</button>}
+    </div>
+
+    {/* At a glance — rank + recent form */}
+    <div className="grid grid-cols-2 gap-3 mb-5">
+      <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.04)"}}>
+        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "4px"}}>Leaderboard rank</div>
+        <div className="text-xl font-bold text-white">#{kdRank || "—"}</div>
+        <div style={{fontSize: "11px", color: "#555"}}>of {analysis.playerStats.length} players · K/D</div>
+      </div>
+      <div className="rounded-lg p-3" style={{background: "rgba(255,255,255,0.04)"}}>
+        <div style={{fontSize: "10px", color: "#555", textTransform: "uppercase", marginBottom: "4px"}}>Recent form</div>
+        {recentForm ? <div>
+          <div className="text-xl font-bold" style={{color: recentForm.wins > recentForm.losses ? "#52b788" : recentForm.wins < recentForm.losses ? "#ff6b6b" : "#ffd166"}}>{recentForm.wins}W-{recentForm.losses}L</div>
+          <div style={{fontSize: "11px", color: "#555"}}>Last {recentForm.games} · {recentForm.kd.toFixed(2)} K/D{recentForm.streak.count >= 2 ? " · " + recentForm.streak.count + (recentForm.streak.winning ? "W" : "L") + " streak" : ""}</div>
+        </div> : <div className="text-xl font-bold" style={{color: "#555"}}>{loading ? "..." : "—"}</div>}
+      </div>
+    </div>
+
+    {/* Season stats by mode */}
+    <div className="mb-5">
+      <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Season stats</div>
+
+      {/* Overall */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+        <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>K/D</div><div className="text-xl font-bold" style={{color: kdColor(s(player, "kd"))}}>{s(player, "kd").toFixed(2)}</div></div>
+        <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>DMG/10m</div><div className="text-xl font-bold text-white">{s(player, "dmg_per_10m").toFixed(1)}</div></div>
+        <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>Matches</div><div className="text-xl font-bold text-white">{s(player, "matches_played")}</div></div>
+        <div className="rounded-lg p-3 text-center" style={{background: "rgba(255,255,255,0.04)"}}><div style={{fontSize: "10px", color: "#555", textTransform: "uppercase"}}>FB%</div><div className="text-xl font-bold text-white">{(s(player, "first_blood_pct") * 100).toFixed(1)}%</div></div>
+      </div>
+
+      {/* Mode breakdown table */}
+      <div className="rounded-lg overflow-hidden" style={{background: "rgba(255,255,255,0.02)"}}>
+        <div className="grid grid-cols-4 gap-2 px-3 py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.06)"}}><div style={{fontSize: "10px", color: "#555"}}>MODE</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>K/D</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>K/10m</div><div style={{fontSize: "10px", color: "#555", textAlign: "center"}}>D/10m</div></div>
+        {[
+          {label: "Hardpoint", kd: "hp_kd", k10: "hp_kills_per_10m", d10: "hp_deaths_per_10m"},
+          {label: "SnD", kd: "snd_kd", k10: "snd_kills_per_round", d10: "snd_deaths_per_round"},
+          {label: "Overload", kd: "ovl_kd", k10: "ovl_kills_per_10m", d10: "ovl_deaths_per_10m"}
+        ].map(function(mode) {
+          var mkd = s(player, mode.kd);
+          var mk = s(player, mode.k10);
+          var md = s(player, mode.d10);
+          var isSnd = mode.label === "SnD";
+          return <div key={mode.label} className="grid grid-cols-4 gap-2 px-3 py-2" style={{borderBottom: "1px solid rgba(255,255,255,0.03)"}}>
+            <div className="text-sm font-semibold" style={{color: "#888"}}>{mode.label}</div>
+            <div className="text-sm text-center font-bold" style={{color: kdColor(mkd)}}>{mkd.toFixed(2)}</div>
+            <div className="text-sm text-center" style={{color: "#aaa"}}>{isSnd ? mk.toFixed(2) : mk.toFixed(1)}</div>
+            <div className="text-sm text-center" style={{color: "#aaa"}}>{isSnd ? md.toFixed(2) : md.toFixed(1)}</div>
+          </div>;
+        })}
+      </div>
+      {/* SnD label clarification */}
+      <div style={{fontSize: "10px", color: "#444", marginTop: "4px", paddingLeft: "4px"}}>SnD shows kills/deaths per round instead of per 10 min</div>
+    </div>
+
+    {/* Match history */}
+    <div>
+      <div className="text-xs uppercase tracking-wider opacity-40 mb-3">Recent matches</div>
+      {loading && <div className="py-6 text-center"><div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{borderColor: "#e94560", borderTopColor: "transparent"}} /><p className="text-xs mt-2" style={{color: "#555"}}>Loading match history...</p></div>}
+
+      {matchHistory && matchHistory.length > 0 && <div className="rounded-lg overflow-hidden" style={{border: "1px solid rgba(255,255,255,0.06)"}}>
+        {/* Header */}
+        <div className="px-3 py-2 grid items-center" style={{gridTemplateColumns: "44px 1fr 40px 40px 50px 36px", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)"}}>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>OPP</span>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase"}}>DATE</span>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase", textAlign: "center"}}>K</span>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase", textAlign: "center"}}>D</span>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase", textAlign: "center"}}>K/D</span>
+          <span style={{fontSize: "9px", color: "#555", textTransform: "uppercase", textAlign: "center"}}>W/L</span>
+        </div>
+        {matchHistory.slice(0, 15).map(function(m, i) {
+          var kills = m.kills || 0, deaths = m.deaths || 0;
+          var mkd = deaths > 0 ? kills / deaths : kills;
+          return <div key={i} className="px-3 py-2 grid items-center" style={{gridTemplateColumns: "44px 1fr 40px 40px 50px 36px", borderBottom: "1px solid rgba(255,255,255,0.02)", background: i % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent"}}>
+            <span className="text-xs font-bold truncate" style={{color: m.opp_team_color || "#888"}}>{m.opp_team_abbr || "?"}</span>
+            <span style={{fontSize: "10px", color: "#444"}}>{m.scheduled_at ? new Date(m.scheduled_at).toLocaleDateString("en-US", {month: "short", day: "numeric"}) : ""}</span>
+            <span className="text-xs text-center font-bold text-white tabular-nums">{kills}</span>
+            <span className="text-xs text-center tabular-nums" style={{color: "#888"}}>{deaths}</span>
+            <span className="text-xs text-center font-bold tabular-nums" style={{color: kdColor(mkd)}}>{mkd.toFixed(2)}</span>
+            <span className="text-xs text-center font-bold" style={{color: m.won_series ? "#52b788" : "#ff6b6b"}}>{m.won_series ? "W" : "L"}</span>
+          </div>;
+        })}
+      </div>}
+
+      {matchHistory && matchHistory.length === 0 && !loading && <p className="text-sm opacity-40">No match history available</p>}
+    </div>
+  </div>;
+}
+
 function SearchTab(props) {
   var analysis = props.analysis;
   var openTeam = props.openTeam;
@@ -879,7 +1056,7 @@ function SearchTab(props) {
         <div className="space-y-1">
           {playerResults.map(function(p) {
             return <div key={p.player_id} className="rounded-xl overflow-hidden" style={{background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)"}}>
-              <div className="flex items-center gap-3 p-3 cursor-pointer hover:bg-white/5 transition-colors" onClick={function() { setSelected(p); }}>
+              <div className="flex items-center gap-3 p-3 cursor-pointer hover:bg-white/5 transition-colors" onClick={function() { openPlayer(p.player_id); }}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5"><span className="text-sm font-bold text-white truncate">{p.gamertag}</span><RoleBadge role={p.role} /></div>
                   <span className="text-xs" style={{color: "#555"}}>{p.team_name || p.team_abbr || ""}</span>
@@ -1154,6 +1331,7 @@ function PlayerCompare(props) {
 
 function PlayerLeaderboard(props) {
   var analysis = props.analysis;
+  var onPlayerClick = props.onPlayerClick;
   var [sortBy, setSortBy] = useState("kd");
   var [roleFilter, setRoleFilter] = useState("All");
 
@@ -1220,7 +1398,7 @@ function PlayerLeaderboard(props) {
       var matches = s(p, "matches_played");
       var mainVal = s(p, sortBy);
       var mainColor = sortBy.indexOf("kd") !== -1 || sortBy === "kd" ? kdColor(mainVal) : mainVal > 0 ? "#52b788" : "#888";
-      return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+      return <div key={p.player_id} className="flex items-center gap-2 py-2.5 px-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors" style={{background: i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent", borderBottom: "1px solid rgba(255,255,255,0.02)"}} onClick={function() { if (onPlayerClick) onPlayerClick(p.player_id); }}>
         <span className="text-xs font-bold flex-shrink-0" style={{width: "24px", textAlign: "center", color: i < 3 ? "#e94560" : "#555"}}>{i + 1}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5"><span className="text-sm font-semibold text-white truncate">{p.gamertag}</span><RoleBadge role={p.role} /></div>
@@ -2195,6 +2373,20 @@ function PlayersTab(props) {
   var setSubView = props.setSubView;
   var initialCompare = props.initialCompare;
   var initialLine = props.initialLine;
+  var selectedPlayerId = props.selectedPlayerId;
+  var openPlayer = props.openPlayer;
+  var closePlayer = props.closePlayer;
+  var openTeam = props.openTeam;
+  var openCompare = props.openCompare;
+  var openLines = props.openLines;
+
+  // If viewing a profile, show it full-screen within the tab
+  if (subView === "profile" && selectedPlayerId) {
+    var player = analysis.playerStats.find(function(p) { return p.player_id === selectedPlayerId; });
+    if (player) {
+      return <PlayerProfilePage player={player} analysis={analysis} onBack={closePlayer} openTeam={openTeam} openCompare={openCompare} openLines={openLines} />;
+    }
+  }
 
   return <div>
     {/* Sub-navigation pills */}
@@ -2215,7 +2407,7 @@ function PlayersTab(props) {
 
     {subView === "leaderboard" && <div>
       <h2 className="text-lg font-bold text-white mb-4">Player leaderboard</h2>
-      <PlayerLeaderboard analysis={analysis} />
+      <PlayerLeaderboard analysis={analysis} onPlayerClick={openPlayer} />
     </div>}
     {subView === "compare" && <div>
       <h2 className="text-lg font-bold text-white mb-4">Player comparison</h2>
@@ -2285,9 +2477,13 @@ export default function App() {
   var [analysis, setAnalysis] = useState(null);
   var [teamPageId, setTeamPageId] = useState(null);
   var [playerSubView, setPlayerSubView] = useState(compareParam ? "compare" : lineParam ? "lines" : "leaderboard");
+  var [selectedPlayerId, setSelectedPlayerId] = useState(null);
 
   var openTeam = function(tid) { setTeamPageId(tid); setTab("Teams"); };
   var closeTeam = function() { setTeamPageId(null); };
+
+  var openPlayer = function(pid) { setSelectedPlayerId(pid); setTab("Players"); setPlayerSubView("profile"); };
+  var closePlayer = function() { setSelectedPlayerId(null); setPlayerSubView("leaderboard"); };
 
   // Cross-navigation helpers for SearchTab
   var openCompare = function(gamertag) {
@@ -2336,15 +2532,15 @@ export default function App() {
     <div className="sticky top-0 z-50 backdrop-blur-xl" style={{background: "rgba(13,13,26,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)"}}>
       <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3"><div><h1 className="text-xl font-black tracking-tight" style={{color: "#e94560"}}>BARRACKS</h1><p className="text-xs opacity-30">CDL 2026</p></div><div className="text-right text-xs opacity-30">{analysis.power.length} teams · {analysis.matchups.length} matchups</div></div>
-        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); if (t === "Players" && playerSubView !== "leaderboard" && !compareParam && !lineParam) setPlayerSubView("leaderboard"); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
+        <div className="flex gap-1 overflow-x-auto">{TABS.map(function(t) { return <button key={t} onClick={function() { setTab(t); if (t !== "Teams") setTeamPageId(null); if (t !== "Players") setSelectedPlayerId(null); if (t === "Players" && playerSubView !== "leaderboard" && !compareParam && !lineParam) setPlayerSubView("leaderboard"); }} className="px-3 sm:px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap" style={{background: tab === t ? "#e94560" : "transparent", color: tab === t ? "#fff" : "#666"}}>{t}</button>; })}</div>
       </div>
     </div>
     <div className="max-w-4xl mx-auto px-4 py-6">
       {tab === "Matches" && <ScheduleTab analysis={analysis} openTeam={openTeam} />}
       {tab === "Teams" && <TeamsTab analysis={analysis} teamPageId={teamPageId} setTeamPageId={setTeamPageId} onBack={closeTeam} />}
-      {tab === "Players" && <PlayersTab analysis={analysis} subView={playerSubView} setSubView={setPlayerSubView} initialCompare={compareParam} initialLine={lineParam} />}
+      {tab === "Players" && <PlayersTab analysis={analysis} subView={playerSubView} setSubView={setPlayerSubView} initialCompare={compareParam} initialLine={lineParam} selectedPlayerId={selectedPlayerId} openPlayer={openPlayer} closePlayer={closePlayer} openTeam={openTeam} openCompare={openCompare} openLines={openLines} />}
       {tab === "Picks" && <PicksTab analysis={analysis} />}
-      {tab === "Search" && <SearchTab analysis={analysis} openTeam={openTeam} openCompare={openCompare} openLines={openLines} />}
+      {tab === "Search" && <SearchTab analysis={analysis} openTeam={openTeam} openPlayer={openPlayer} openCompare={openCompare} openLines={openLines} />}
     </div>
     <div className="text-center py-6 mt-8" style={{borderTop: "1px solid rgba(255,255,255,0.04)"}}><p style={{fontSize: "11px", color: "#444"}}>BARRACKS · CDL 2026</p></div>
   </div>;
